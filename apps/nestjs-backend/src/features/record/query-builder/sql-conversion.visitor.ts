@@ -1798,8 +1798,8 @@ export class SelectColumnSqlConversionVisitor extends BaseSqlConversionVisitor<I
 
     // Handle different field types that use CTEs
     if (isLinkField(fieldInfo)) {
-      // Prefer CTE map resolution when available
-      if (cteMap?.has(fieldId)) {
+      // Prefer direct column when raw references are requested; otherwise fallback to CTE mapping
+      if (!preferRaw && cteMap?.has(fieldId)) {
         const cteName = cteMap.get(fieldId)!;
         selectionSql = `"${cteName}"."link_value"`;
       }
