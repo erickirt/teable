@@ -1954,18 +1954,11 @@ export class FieldCteVisitor implements IFieldVisitor<ICteResult> {
 
     try {
       const buildLinkCte = () => {
-        // Determine which lookup/rollup fields are actually needed from this link.
-        // `getOrderedFieldsByProjection` already ensures that any dependency required by the
-        // projection is itself included in `filteredIdSet`, so we can safely filter here to avoid
-        // selecting unused computed columns that would otherwise produce unnecessary joins.
-        let lookupFields = linkField.getLookupFields(this.table);
-        let rollupFields = linkField.getRollupFields(this.table);
-        const selectionFilter = this.filteredIdSet;
-        if (selectionFilter && selectionFilter.size) {
-          const isProjected = (field: FieldCore) => selectionFilter.has(field.id);
-          lookupFields = lookupFields.filter(isProjected);
-          rollupFields = rollupFields.filter(isProjected);
-        }
+        // Determine which lookup/rollup fields depend on this link. Even if a field isn't part of
+        // the current projection we still need to expose its computed column, otherwise nested CTEs
+        // that reuse this link cannot reference the precomputed values mid-query.
+        const lookupFields = linkField.getLookupFields(this.table);
+        const rollupFields = linkField.getRollupFields(this.table);
 
         // Pre-generate nested CTEs limited to selected lookup/rollup dependencies
         this.generateNestedForeignCtesIfNeeded(
