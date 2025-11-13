@@ -1,4 +1,5 @@
 import type { Field } from '@prisma/client';
+import type { IUpdateRecordsRo } from '@teable/openapi';
 
 export type IFieldRaws = Pick<
   Field,
@@ -12,3 +13,12 @@ export type IFieldRaws = Pick<
   | 'isLookup'
   | 'dbFieldName'
 >[];
+
+export type IUpdateRecordsInternalRo = Omit<IUpdateRecordsRo, 'records'> & {
+  fieldIds?: string[];
+  records: {
+    id: string;
+    fields: Record<string, unknown>;
+    order?: Record<string, number>;
+  }[];
+};
