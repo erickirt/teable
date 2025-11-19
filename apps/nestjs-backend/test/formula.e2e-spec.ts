@@ -3749,6 +3749,87 @@ describe('OpenAPI formula (e2e)', () => {
       }
     );
 
+    it('should apply DATE_ADD to the first value when lookup returns multiple dates', async () => {
+      const foreign = await createTable(baseId, {
+        name: 'formula-date-add-lookup-foreign',
+        fields: [
+          { name: 'Order', type: FieldType.SingleLineText } as IFieldRo,
+          { name: 'Signup Date', type: FieldType.Date } as IFieldRo,
+        ],
+        records: [
+          { fields: { Order: 'A', 'Signup Date': '2024-05-01T00:00:00.000Z' } },
+          { fields: { Order: 'B', 'Signup Date': '2024-05-03T12:00:00.000Z' } },
+        ],
+      });
+      let host: ITableFullVo | undefined;
+      try {
+        host = await createTable(baseId, {
+          name: 'formula-date-add-lookup-host',
+          fields: [{ name: 'Name', type: FieldType.SingleLineText } as IFieldRo],
+          records: [{ fields: { Name: 'Host row' } }],
+        });
+
+        const linkField = await createField(host.id, {
+          name: 'Related Orders',
+          type: FieldType.Link,
+          options: {
+            relationship: Relationship.ManyMany,
+            foreignTableId: foreign.id,
+          } as ILinkFieldOptionsRo,
+        } as IFieldRo);
+
+        const signupDateFieldId = foreign.fields.find((field) => field.name === 'Signup Date')!.id;
+        const lookupField = await createField(host.id, {
+          name: 'Signup Dates',
+          type: FieldType.Date,
+          isLookup: true,
+          lookupOptions: {
+            foreignTableId: foreign.id,
+            lookupFieldId: signupDateFieldId,
+            linkFieldId: linkField.id,
+          } as ILookupOptionsRo,
+          options: {
+            formatting: {
+              date: DateFormattingPreset.ISO,
+              time: TimeFormatting.None,
+              timeZone: 'UTC',
+            },
+          },
+        } as IFieldRo);
+
+        const dateAddField = await createField(host.id, {
+          name: 'Signup Date +14d',
+          type: FieldType.Formula,
+          options: {
+            expression: `DATE_ADD({${lookupField.id}}, 14, 'day')`,
+          },
+        } as IFieldRo);
+
+        const hostRecordId = host.records[0].id;
+        await updateRecordByApi(
+          host.id,
+          hostRecordId,
+          linkField.id,
+          foreign.records.map((record) => ({ id: record.id }))
+        );
+
+        const recordAfter = await getRecord(host.id, hostRecordId);
+        expect(recordAfter.data.fields[lookupField.name]).toEqual([
+          '2024-05-01T00:00:00.000Z',
+          '2024-05-03T12:00:00.000Z',
+        ]);
+
+        expect(recordAfter.data.fields[dateAddField.name]).toBe(
+          addToDate(new Date('2024-05-01T00:00:00.000Z'), 14, 'day').toISOString()
+        );
+      } finally {
+        if (host) {
+          await permanentDeleteTable(baseId, host.id);
+        }
+        await permanentDeleteTable(baseId, foreign.id);
+      }
+    });
+
     it.each(datetimeDiffCases)(
       'should evaluate DATETIME_DIFF for unit "%s"',
       async ({ literal, expected }) => {
