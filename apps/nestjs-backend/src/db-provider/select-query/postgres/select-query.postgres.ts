@@ -1,8 +1,9 @@
-import { DbFieldType, FieldType } from '@teable/core';
+import { DbFieldType } from '@teable/core';
 import type { ISelectFormulaConversionContext } from '../../../features/record/query-builder/sql-conversion.visitor';
 import { getDefaultDatetimeParsePattern } from '../../utils/default-datetime-parse-pattern';
 import {
   isBooleanLikeParam,
+  isDatetimeLikeParam,
   isJsonLikeParam,
   isTextLikeParam,
   isTrustedNumeric,
@@ -706,14 +707,17 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
 
   datetimeParse(dateString: string, format?: string): string {
     const valueExpr = `(${dateString})`;
-    const needsGuard = !this.isDirectDatetimeFieldParam(0);
+    const trustedDatetimeInput = this.hasTrustedDatetimeInput(0);
 
     if (format == null) {
-      return needsGuard ? this.guardDefaultDatetimeParse(valueExpr) : valueExpr;
+      return trustedDatetimeInput ? valueExpr : this.guardDefaultDatetimeParse(valueExpr);
     }
     const normalized = format.trim();
     if (!normalized || normalized === 'undefined' || normalized.toLowerCase() === 'null') {
-      return needsGuard ? this.guardDefaultDatetimeParse(valueExpr) : valueExpr;
+      return trustedDatetimeInput ? valueExpr : this.guardDefaultDatetimeParse(valueExpr);
+    }
+    if (trustedDatetimeInput) {
+      return valueExpr;
     }
     const toTimestampExpr = `TO_TIMESTAMP(${valueExpr}::text, ${format})`;
     const guardPattern = this.buildDatetimeParseGuardRegex(normalized);
@@ -1193,22 +1197,17 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
     return pattern;
   }
 
-  private isDirectDatetimeFieldParam(index: number): boolean {
-    const metadata = this.currentCallMetadata?.[index];
-    if (!metadata?.isFieldReference || !metadata.field) {
+  private hasTrustedDatetimeInput(index: number): boolean {
+    const paramInfo = this.getParamInfo(index);
+    if (!paramInfo.hasMetadata) {
       return false;
     }
-    if (metadata.field.isMultiple) {
+    if (!isDatetimeLikeParam(paramInfo)) {
       return false;
     }
-    if (metadata.field.isLookup && metadata.field.dbFieldType === DbFieldType.Json) {
+    if (paramInfo.isJsonField || paramInfo.isMultiValueField) {
       return false;
     }
-    const fieldType = metadata.field.type;
-    return (
-      fieldType === FieldType.Date ||
-      fieldType === FieldType.CreatedTime ||
-      fieldType === FieldType.LastModifiedTime
-    );
+    return true;
   }
 }

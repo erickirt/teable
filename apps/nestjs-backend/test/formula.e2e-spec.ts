@@ -4548,6 +4548,45 @@ describe('OpenAPI formula (e2e)', () => {
       expect(value).toBe(sourceIso);
     });
 
+    it('should allow DATETIME_PARSE to consume DATE_ADD output with literal time fragments', async () => {
+      const dateField = await createField(table1Id, {
+        name: 'month-end',
+        type: FieldType.Date,
+        options: {
+          formatting: {
+            date: DateFormattingPreset.ISO,
+            time: TimeFormatting.Hour24,
+            timeZone: 'UTC',
+          },
+        },
+      });
+
+      const formulaField = await createField(table1Id, {
+        name: 'month-start',
+        type: FieldType.Formula,
+        options: {
+          expression: `DATETIME_PARSE(DATE_ADD({${dateField.id}}, 1 - DAY({${dateField.id}}), 'day'), 'YYYY-MM-DD 00:00')`,
+        },
+      });
+
+      const sourceIso = '2025-11-19T00:00:00.000Z';
+      const expectedIso = '2025-11-01T00:00:00.000Z';
+      const { records } = await createRecords(table1Id, {
+        fieldKeyType: FieldKeyType.Name,
+        records: [
+          {
+            fields: {
+              [dateField.name]: sourceIso,
+            },
+          },
+        ],
+      });
+
+      const recordAfterFormula = await getRecord(table1Id, records[0].id);
+      const value = recordAfterFormula.data.fields?.[formulaField.name] ?? null;
+      expect(value).toBe(expectedIso);
+    });
+
     it('should coerce blank IF branch to null for datetime results', async () => {
       const dateField = await createField(table1Id, {
         name: 'source-date',
