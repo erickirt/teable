@@ -60,7 +60,6 @@ export class FieldSelectVisitor implements IFieldVisitor<IFieldSelectName> {
      */
     private readonly rawProjection: boolean = false,
     private readonly preferRawFieldReferences: boolean = false,
-    private readonly allowLinkCteReference: boolean = true,
     private readonly blockedLinkFieldIds?: ReadonlySet<string>,
     private readonly readyLinkFieldIds?: ReadonlySet<string>,
     private readonly currentLinkFieldId?: string
@@ -301,7 +300,6 @@ export class FieldSelectVisitor implements IFieldVisitor<IFieldSelectName> {
           currentLinkFieldId: this.currentLinkFieldId,
           timeZone: timezone,
           preferRawFieldReferences: this.preferRawFieldReferences,
-          allowLinkCteReference: this.allowLinkCteReference,
           targetDbFieldType: field.dbFieldType,
         });
         const normalized =

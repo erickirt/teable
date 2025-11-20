@@ -817,9 +817,9 @@ class FieldCteSelectionVisitor implements IFieldVisitor<IFieldSelectName> {
       this.dialect,
       foreignTableAlias,
       true,
-      true,
+      false,
       this.blockedLinkFieldIds,
-      this.readyLinkFieldIds,
+      undefined,
       this.currentLinkFieldId
     );
     const targetFieldResult = targetLookupField.accept(selectVisitor);
@@ -1153,7 +1153,7 @@ export class FieldCteVisitor implements IFieldVisitor<ICteResult> {
       rawProjection,
       preferRawFieldReferences,
       blocked,
-      this.emittedLinkCteIds,
+      new Set(this.emittedLinkCteIds),
       currentLinkFieldId
     );
   }
