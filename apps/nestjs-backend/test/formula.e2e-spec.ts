@@ -2179,6 +2179,242 @@ describe('OpenAPI formula (e2e)', () => {
       }
     });
 
+    it('applies timezone-aware formatting before slicing datetime values', async () => {
+      const foreign = await createTable(baseId, {
+        name: 'formula-datetime-slice-foreign',
+        fields: [
+          { name: 'Title', type: FieldType.SingleLineText } as IFieldRo,
+          {
+            name: 'Approval Date',
+            type: FieldType.Date,
+            options: {
+              formatting: {
+                date: DateFormattingPreset.ISO,
+                time: TimeFormatting.None,
+                timeZone: 'Asia/Shanghai',
+              },
+            },
+          } as IFieldRo,
+        ],
+        records: [{ fields: { Title: 'Milestone', 'Approval Date': '2023-02-25T16:00:00.000Z' } }],
+      });
+      let host: ITableFullVo | undefined;
+      try {
+        const approvalFieldId = foreign.fields.find((field) => field.name === 'Approval Date')!.id;
+
+        const directLeftField = await createField(foreign.id, {
+          name: 'Approval Left',
+          type: FieldType.Formula,
+          options: {
+            expression: `LEFT({${approvalFieldId}}, 4)`,
+            timeZone: 'Asia/Shanghai',
+          },
+        });
+
+        const directMidField = await createField(foreign.id, {
+          name: 'Approval Mid',
+          type: FieldType.Formula,
+          options: {
+            expression: `MID({${approvalFieldId}}, 6, 2)`,
+            timeZone: 'Asia/Shanghai',
+          },
+        });
+
+        const directSearchField = await createField(foreign.id, {
+          name: 'Approval Search',
+          type: FieldType.Formula,
+          options: {
+            expression: `SEARCH("02", {${approvalFieldId}})`,
+            timeZone: 'Asia/Shanghai',
+          },
+        });
+
+        const directSliceField = await createField(foreign.id, {
+          name: 'Approval Day Tail',
+          type: FieldType.Formula,
+          options: {
+            expression: `RIGHT({${approvalFieldId}}, 2)`,
+            timeZone: 'Asia/Shanghai',
+          },
+        });
+
+        const directRecord = await getRecord(foreign.id, foreign.records[0].id);
+        expect(directRecord.data.fields[directSliceField.name]).toBe('26');
+        expect(directRecord.data.fields[directLeftField.name]).toBe('2023');
+        expect(directRecord.data.fields[directMidField.name]).toBe('02');
+        expect(directRecord.data.fields[directSearchField.name]).toBeGreaterThan(0);
+
+        host = await createTable(baseId, {
+          name: 'formula-datetime-slice-host',
+          fields: [{ name: 'Project', type: FieldType.SingleLineText } as IFieldRo],
+          records: [{ fields: { Project: 'Lookup slice' } }],
+        });
+
+        const linkField = await createField(host.id, {
+          name: 'Related Approval',
+          type: FieldType.Link,
+          options: {
+            relationship: Relationship.ManyMany,
+            foreignTableId: foreign.id,
+          } as ILinkFieldOptionsRo,
+        } as IFieldRo);
+
+        const lookupField = await createField(host.id, {
+          name: 'Approval Lookup',
+          type: FieldType.Date,
+          isLookup: true,
+          lookupOptions: {
+            foreignTableId: foreign.id,
+            lookupFieldId: approvalFieldId,
+            linkFieldId: linkField.id,
+          } as ILookupOptionsRo,
+          options: {
+            formatting: {
+              date: DateFormattingPreset.ISO,
+              time: TimeFormatting.None,
+              timeZone: 'Asia/Shanghai',
+            },
+          },
+        } as IFieldRo);
+
+        const lookupLeftField = await createField(host.id, {
+          name: 'Approval Lookup Left',
+          type: FieldType.Formula,
+          options: {
+            expression: `LEFT({${lookupField.id}}, 4)`,
+            timeZone: 'Asia/Shanghai',
+          },
+        } as IFieldRo);
+
+        const lookupMidField = await createField(host.id, {
+          name: 'Approval Lookup Mid',
+          type: FieldType.Formula,
+          options: {
+            expression: `MID({${lookupField.id}}, 6, 2)`,
+            timeZone: 'Asia/Shanghai',
+          },
+        } as IFieldRo);
+
+        const lookupSearchField = await createField(host.id, {
+          name: 'Approval Lookup Search',
+          type: FieldType.Formula,
+          options: {
+            expression: `SEARCH("02", {${lookupField.id}})`,
+            timeZone: 'Asia/Shanghai',
+          },
+        } as IFieldRo);
+
+        const lookupSliceField = await createField(host.id, {
+          name: 'Approval Lookup Day Tail',
+          type: FieldType.Formula,
+          options: {
+            expression: `RIGHT({${lookupField.id}}, 2)`,
+            timeZone: 'Asia/Shanghai',
+          },
+        } as IFieldRo);
+
+        const hostRecordId = host.records[0].id;
+        await updateRecordByApi(host.id, hostRecordId, linkField.id, [
+          { id: foreign.records[0].id },
+        ]);
+
+        const lookupRecord = await getRecord(host.id, hostRecordId);
+        expect(lookupRecord.data.fields[lookupSliceField.name]).toBe('26');
+        expect(lookupRecord.data.fields[lookupLeftField.name]).toBe('2023');
+        expect(lookupRecord.data.fields[lookupMidField.name]).toBe('02');
+        expect(lookupRecord.data.fields[lookupSearchField.name]).toBeGreaterThan(0);
+      } finally {
+        if (host) {
+          await permanentDeleteTable(baseId, host.id);
+        }
+        await permanentDeleteTable(baseId, foreign.id);
+      }
+    });
+
+    it('applies timezone-aware slicing on multi-value lookup datetimes', async () => {
+      const foreign = await createTable(baseId, {
+        name: 'formula-datetime-slice-multi-foreign',
+        fields: [
+          { name: 'Title', type: FieldType.SingleLineText } as IFieldRo,
+          {
+            name: 'Milestone',
+            type: FieldType.Date,
+            options: {
+              formatting: {
+                date: DateFormattingPreset.ISO,
+                time: TimeFormatting.None,
+                timeZone: 'Asia/Shanghai',
+              },
+            },
+          } as IFieldRo,
+        ],
+        records: [
+          { fields: { Title: 'A', Milestone: '2023-02-25T16:00:00.000Z' } },
+          { fields: { Title: 'B', Milestone: '2023-03-01T16:00:00.000Z' } },
+        ],
+      });
+      let host: ITableFullVo | undefined;
+      try {
+        const milestoneFieldId = foreign.fields.find((field) => field.name === 'Milestone')!.id;
+
+        host = await createTable(baseId, {
+          name: 'formula-datetime-slice-multi-host',
+          fields: [{ name: 'Project', type: FieldType.SingleLineText } as IFieldRo],
+          records: [{ fields: { Project: 'Lookup slice multi' } }],
+        });
+
+        const linkField = await createField(host.id, {
+          name: 'Related Milestones',
+          type: FieldType.Link,
+          options: {
+            relationship: Relationship.ManyMany,
+            foreignTableId: foreign.id,
+          } as ILinkFieldOptionsRo,
+        } as IFieldRo);
+
+        const lookupField = await createField(host.id, {
+          name: 'Milestone Dates Lookup',
+          type: FieldType.Date,
+          isLookup: true,
+          lookupOptions: {
+            foreignTableId: foreign.id,
+            lookupFieldId: milestoneFieldId,
+            linkFieldId: linkField.id,
+          } as ILookupOptionsRo,
+          options: {
+            formatting: {
+              date: DateFormattingPreset.ISO,
+              time: TimeFormatting.None,
+              timeZone: 'Asia/Shanghai',
+            },
+          },
+        } as IFieldRo);
+
+        const sliceField = await createField(host.id, {
+          name: 'Milestone Slice',
+          type: FieldType.Formula,
+          options: {
+            expression: `MID({${lookupField.id}}, 3, 4)`,
+            timeZone: 'Asia/Shanghai',
+          },
+        } as IFieldRo);
+
+        const hostRecordId = host.records[0].id;
+        await updateRecordByApi(host.id, hostRecordId, linkField.id, [
+          { id: foreign.records[0].id },
+          { id: foreign.records[1].id },
+        ]);
+
+        const lookupRecord = await getRecord(host.id, hostRecordId);
+        expect(lookupRecord.data.fields[sliceField.name]).toBe('23-0');
+      } finally {
+        if (host) {
+          await permanentDeleteTable(baseId, host.id);
+        }
+        await permanentDeleteTable(baseId, foreign.id);
+      }
+    });
+
     it('should format multi-value lookup numbers with VALUE', async () => {
       const foreign = await createTable(baseId, {
         name: 'formula-lookup-value-foreign',

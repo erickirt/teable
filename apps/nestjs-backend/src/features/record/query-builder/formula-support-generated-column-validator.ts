@@ -62,6 +62,10 @@ export class FormulaSupportGeneratedColumnValidator {
         return false;
       }
 
+      if (this.hasDatetimeTextSlicing(tree)) {
+        return false;
+      }
+
       if (this.hasLogicalNonBooleanArgs(tree)) {
         return false;
       }
@@ -600,6 +604,50 @@ export class FormulaSupportGeneratedColumnValidator {
     }
 
     return tree.accept(new DatetimeConcatDetector()) ?? false;
+  }
+
+  private hasDatetimeTextSlicing(tree: ExprContext): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const self = this;
+    class DatetimeTextSliceDetector extends AbstractParseTreeVisitor<boolean> {
+      protected defaultResult(): boolean {
+        return false;
+      }
+
+      visitChildren(node: RuleNode): boolean {
+        const n = node.childCount;
+        for (let i = 0; i < n; i++) {
+          const child = node.getChild(i);
+          if (child && child.accept(this)) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      visitFunctionCall(ctx: FunctionCallContext): boolean {
+        const rawName = ctx.func_name().text.toUpperCase();
+        const fnName = normalizeFunctionNameAlias(rawName) as FunctionName;
+        const exprs = ctx.expr();
+        const hasDatetimeArg = exprs.some((exprCtx) => self.inferBasicType(exprCtx) === 'datetime');
+
+        if (hasDatetimeArg) {
+          switch (fnName) {
+            case FunctionName.Left:
+            case FunctionName.Right:
+            case FunctionName.Mid:
+            case FunctionName.Replace:
+              return true;
+            default:
+              break;
+          }
+        }
+
+        return this.visitChildren(ctx);
+      }
+    }
+
+    return tree.accept(new DatetimeTextSliceDetector()) ?? false;
   }
 
   private hasLogicalNonBooleanArgs(tree: ExprContext): boolean {

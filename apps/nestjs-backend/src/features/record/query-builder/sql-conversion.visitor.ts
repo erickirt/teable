@@ -15,6 +15,7 @@ import {
   FunctionCallContext,
   FunctionName,
   FieldType,
+  CellValueType,
   DriverClient,
   AbstractParseTreeVisitor,
   BinaryOpContext,
@@ -29,10 +30,12 @@ import {
   isLinkLookupOptions,
   normalizeFunctionNameAlias,
   DbFieldType,
+  DateFormattingPreset,
   extractFieldReferenceId,
   getFieldReferenceTokenText,
   FUNCTIONS,
   Relationship,
+  TimeFormatting,
 } from '@teable/core';
 import type {
   FormulaVisitor,
@@ -47,6 +50,7 @@ import type {
   IFormulaParamMetadata,
   IFormulaParamFieldMetadata,
   FormulaParamType,
+  IDatetimeFormatting,
 } from '@teable/core';
 import type { ITeableToDbFunctionConverter } from '@teable/core/src/formula/function-convertor.interface';
 import type { RootContext, UnaryOpContext } from '@teable/core/src/formula/parser/Formula';
@@ -1126,6 +1130,7 @@ abstract class BaseSqlConversionVisitor<
   }
 
   private buildPgSingleValueExtractor(expr: string, _fieldInfo: FieldCore): string {
+    const fieldInfo = _fieldInfo;
     const normalizedJson = this.normalizeMultiValueExprToJson(expr);
 
     const firstElement = `(SELECT elem
@@ -1149,8 +1154,31 @@ abstract class BaseSqlConversionVisitor<
         (${scalarJson})::text
       )
       WHEN jsonb_typeof(${scalarJson}) = 'array' THEN NULL
-      ELSE ${scalarJson} #>> '{}'
+      ELSE ${this.formatScalarDatetimeIfNeeded(`${scalarJson} #>> '{}'`, fieldInfo)}
     END)`;
+  }
+
+  private formatScalarDatetimeIfNeeded(scalar: string, fieldInfo: FieldCore): string {
+    if (this.context?.isGeneratedColumn) {
+      return scalar;
+    }
+    const isDatetimeCell =
+      (fieldInfo as unknown as { cellValueType?: CellValueType })?.cellValueType ===
+        CellValueType.DateTime || fieldInfo.dbFieldType === DbFieldType.DateTime;
+    const formatting = (fieldInfo as unknown as { options?: { formatting?: IDatetimeFormatting } })
+      ?.options?.formatting;
+
+    if (!isDatetimeCell || !this.dialect || typeof this.dialect.formatDate !== 'function') {
+      return scalar;
+    }
+
+    const fallBackFormatting: IDatetimeFormatting = {
+      date: DateFormattingPreset.ISO,
+      time: TimeFormatting.None,
+      timeZone: this.context?.timeZone ?? 'UTC',
+    };
+
+    return this.dialect.formatDate(scalar, formatting ?? fallBackFormatting);
   }
 
   private normalizeMultiValueExprToJson(expr: string): string {
@@ -1265,18 +1293,31 @@ abstract class BaseSqlConversionVisitor<
     inferredType?: 'string' | 'number' | 'boolean' | 'datetime' | 'unknown'
   ): string {
     let normalizedValue = value;
+    let coercedMultiToString = false;
     if (exprCtx instanceof FieldReferenceCurlyContext) {
       const normalizedFieldId = extractFieldReferenceId(exprCtx);
       const rawToken = getFieldReferenceTokenText(exprCtx);
       const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1).trim() ?? '';
       const fieldInfo = this.context.table.getField(fieldId);
-      if (fieldInfo?.isMultipleCellValue && this.dialect) {
+      const isMultiField = this.isMultiValueField(fieldInfo as FieldCore);
+      if (
+        fieldInfo &&
+        (fieldInfo as unknown as { cellValueType?: CellValueType })?.cellValueType ===
+          CellValueType.DateTime
+      ) {
+        // Keep a note that this value carries datetime semantics even when inferred as string
+        inferredType = inferredType === undefined ? 'datetime' : inferredType;
+      }
+      if (isMultiField && this.dialect) {
         // Normalize multi-value references (lookup, link, multi-select, etc.) into a deterministic
         // comma-separated string so downstream text operations behave as expected.
-        normalizedValue = this.dialect.formatStringArray(value);
+        normalizedValue = this.dialect.formatStringArray(value, { fieldInfo });
+        coercedMultiToString = true;
       }
     }
-    const type = inferredType ?? this.inferExpressionType(exprCtx);
+    const type = coercedMultiToString
+      ? 'string'
+      : inferredType ?? this.inferExpressionType(exprCtx);
     if (type === 'datetime') {
       return this.formulaQuery.datetimeFormat(normalizedValue, "'YYYY-MM-DD'");
     }
@@ -1967,7 +2008,7 @@ export class SelectColumnSqlConversionVisitor extends BaseSqlConversionVisitor<I
             !!fieldInfo.isMultipleCellValue
           );
           if (fieldInfo.isMultipleCellValue) {
-            return this.dialect!.formatStringArray(titlesExpr);
+            return this.dialect!.formatStringArray(titlesExpr, { fieldInfo });
           }
           return titlesExpr;
         }
@@ -2082,7 +2123,7 @@ export class SelectColumnSqlConversionVisitor extends BaseSqlConversionVisitor<I
 
     const titlesExpr = dialect.linkExtractTitles(expr, !!fieldInfo.isMultipleCellValue);
     if (fieldInfo.isMultipleCellValue) {
-      return dialect.formatStringArray(titlesExpr);
+      return dialect.formatStringArray(titlesExpr, { fieldInfo });
     }
     return titlesExpr;
   }

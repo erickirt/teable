@@ -1,3 +1,4 @@
+/* eslint-disable sonarjs/cognitive-complexity */
 import type {
   FieldCore,
   AttachmentFieldCore,
@@ -291,6 +292,25 @@ export class FieldSelectVisitor implements IFieldVisitor<IFieldSelectName> {
       // always emit the computed expression which degrades to NULL when references
       // are unresolved.
       if (this.rawProjection) {
+        const formulaSql = this.dbProvider.convertFormulaToSelectQuery(expression, {
+          table: this.table,
+          tableAlias: this.tableAlias,
+          selectionMap: this.getSelectionMap(),
+          fieldCteMap: this.state.getFieldCteMap(),
+          readyLinkFieldIds: this.readyLinkFieldIds,
+          currentLinkFieldId: this.currentLinkFieldId,
+          timeZone: timezone,
+          preferRawFieldReferences: this.preferRawFieldReferences,
+          targetDbFieldType: field.dbFieldType,
+        });
+        const normalized =
+          field.dbFieldType === DbFieldType.Json ? `to_jsonb(${formulaSql})` : formulaSql;
+        const casted = this.castExpressionForDbType(normalized as string, field);
+        this.state.setSelection(field.id, casted);
+        return casted;
+      }
+
+      if (!field.getIsPersistedAsGeneratedColumn()) {
         const formulaSql = this.dbProvider.convertFormulaToSelectQuery(expression, {
           table: this.table,
           tableAlias: this.tableAlias,
