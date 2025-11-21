@@ -460,6 +460,62 @@ describe('Select formula arithmetic coercion', () => {
   });
 });
 
+describe('Select formula datetime text slicing', () => {
+  const knexClient = knex({ client: 'pg' });
+  const provider = new PostgresProvider(knexClient);
+
+  const lookupDateFieldVo: IFieldVo = {
+    id: 'fldLookupDate01',
+    name: 'Lookup Date',
+    type: FieldType.Date,
+    options: {
+      formatting: {
+        date: DateFormattingPreset.ISO,
+        time: TimeFormatting.None,
+        timeZone: 'Asia/Shanghai',
+      },
+    },
+    dbFieldName: 'lookup_date_col',
+    dbFieldType: DbFieldType.DateTime,
+    cellValueType: CellValueType.DateTime,
+    isLookup: true,
+    isComputed: true,
+    isMultipleCellValue: true,
+  };
+
+  const lookupDateField = createFieldInstanceByVo(lookupDateFieldVo);
+
+  const table = new TableDomain({
+    id: 'tblSlice',
+    name: 'Slice Table',
+    dbTableName: 'slice_table',
+    lastModifiedTime: '1970-01-01T00:00:00.000Z',
+    fields: [lookupDateField],
+  });
+
+  const buildContext = (): ISelectFormulaConversionContext => ({
+    table,
+    tableAlias: 'main',
+    selectionMap: new Map<string, IFieldSelectName>([
+      [lookupDateField.id, '"main"."lookup_date_col"'],
+    ]),
+    timeZone: 'Asia/Shanghai',
+    preferRawFieldReferences: true,
+  });
+
+  it('applies timezone-aware formatting before RIGHT()', () => {
+    const sql = provider.convertFormulaToSelectQuery(
+      `RIGHT({${lookupDateField.id}}, 2)`,
+      buildContext()
+    ) as string;
+
+    expect(sql).toContain('TO_CHAR');
+    expect(sql).toContain('Asia/Shanghai');
+    expect(sql).toContain('RIGHT(');
+    expect(sql).toContain("'YYYY-MM-DD'");
+  });
+});
+
 describe('Select formula string comparisons', () => {
   const query = new SelectQueryPostgres();
   const tableStub = {

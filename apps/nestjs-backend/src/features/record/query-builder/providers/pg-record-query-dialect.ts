@@ -56,7 +56,7 @@ export class PgRecordQueryDialect implements IRecordQueryDialectProvider {
       )`;
   }
 
-  formatStringArray(expr: string): string {
+  formatStringArray(expr: string, opts?: { fieldInfo?: FieldCore }): string {
     const trimmedRaw = expr.trim();
     const upperExpr = trimmedRaw.toUpperCase();
     if (upperExpr === 'NULL' || upperExpr === 'NULL::JSONB' || upperExpr === 'NULL::JSON') {
@@ -68,25 +68,9 @@ export class PgRecordQueryDialect implements IRecordQueryDialectProvider {
     if (upperExpr === 'NULL::TEXT') {
       return trimmedRaw;
     }
-    const typeExpr = `pg_typeof(${expr})::text`;
-    const textExpr = `((${expr})::text)`;
-    const trimmedExpr = `BTRIM(${textExpr})`;
-    const safeArrayExpr = `(CASE
-        WHEN ${expr} IS NULL THEN '[]'::jsonb
-        WHEN ${typeExpr} = 'jsonb' THEN COALESCE((${expr})::jsonb, '[]'::jsonb)
-        WHEN ${typeExpr} = 'json' THEN COALESCE((${expr})::jsonb, '[]'::jsonb)
-        WHEN ${typeExpr} IN ('text', 'varchar', 'bpchar', 'character varying', 'unknown') THEN
-          CASE
-            WHEN ${trimmedExpr} = '' THEN '[]'::jsonb
-            WHEN LEFT(${trimmedExpr}, 1) = '[' THEN COALESCE((${expr})::jsonb, '[]'::jsonb)
-            ELSE jsonb_build_array(to_jsonb(${expr}))
-          END
-        ELSE
-          CASE
-            WHEN jsonb_typeof(to_jsonb(${expr})) = 'array' THEN COALESCE(to_jsonb(${expr}), '[]'::jsonb)
-            ELSE jsonb_build_array(to_jsonb(${expr}))
-          END
-      END)`;
+    const safeArrayExpr =
+      this.buildArrayNormalizerFromField(expr, opts?.fieldInfo) ??
+      this.buildGenericArrayNormalizer(expr);
     return `(
         SELECT string_agg(
           CASE
@@ -99,6 +83,57 @@ export class PgRecordQueryDialect implements IRecordQueryDialectProvider {
         )
         FROM jsonb_array_elements(${safeArrayExpr}) WITH ORDINALITY AS t(elem, ord)
       )`;
+  }
+
+  private buildArrayNormalizerFromField(expr: string, fieldInfo?: FieldCore): string | null {
+    if (!fieldInfo) {
+      return null;
+    }
+
+    const baseExpr = `(${expr})`;
+    const isLikelyJson =
+      (fieldInfo as unknown as { isMultipleCellValue?: boolean }).isMultipleCellValue === true ||
+      fieldInfo.dbFieldType === DbFieldType.Json ||
+      fieldInfo.type === FieldType.Link ||
+      fieldInfo.type === FieldType.Attachment ||
+      fieldInfo.type === FieldType.MultipleSelect ||
+      fieldInfo.type === FieldType.User ||
+      fieldInfo.type === FieldType.CreatedBy ||
+      fieldInfo.type === FieldType.LastModifiedBy;
+
+    if (!isLikelyJson) {
+      return null;
+    }
+
+    const jsonExpr = `to_jsonb(${baseExpr})`;
+
+    return `(CASE
+      WHEN ${baseExpr} IS NULL THEN '[]'::jsonb
+      WHEN jsonb_typeof(${jsonExpr}) = 'array' THEN COALESCE(${jsonExpr}, '[]'::jsonb)
+      ELSE jsonb_build_array(${jsonExpr})
+    END)`;
+  }
+
+  private buildGenericArrayNormalizer(expr: string): string {
+    const typeExpr = `pg_typeof(${expr})::text`;
+    const textExpr = `((${expr})::text)`;
+    const trimmedExpr = `BTRIM(${textExpr})`;
+    return `(CASE
+        WHEN ${expr} IS NULL THEN '[]'::jsonb
+        WHEN ${typeExpr} = 'jsonb' THEN COALESCE(to_jsonb(${expr}), '[]'::jsonb)
+        WHEN ${typeExpr} = 'json' THEN COALESCE(to_jsonb(${expr}), '[]'::jsonb)
+        WHEN ${typeExpr} IN ('text', 'varchar', 'bpchar', 'character varying', 'unknown') THEN
+          CASE
+            WHEN ${trimmedExpr} = '' THEN '[]'::jsonb
+            WHEN LEFT(${trimmedExpr}, 1) = '[' THEN COALESCE((${expr})::jsonb, '[]'::jsonb)
+            ELSE jsonb_build_array(to_jsonb(${expr}))
+          END
+        ELSE
+          CASE
+            WHEN jsonb_typeof(to_jsonb(${expr})) = 'array' THEN COALESCE(to_jsonb(${expr}), '[]'::jsonb)
+            ELSE jsonb_build_array(to_jsonb(${expr}))
+          END
+      END)`;
   }
 
   formatRating(expr: string): string {

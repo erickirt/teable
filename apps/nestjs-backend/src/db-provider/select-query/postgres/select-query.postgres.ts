@@ -1,4 +1,6 @@
-import { DbFieldType } from '@teable/core';
+/* eslint-disable sonarjs/cognitive-complexity */
+import { DateFormattingPreset, DbFieldType, TimeFormatting } from '@teable/core';
+import type { IDatetimeFormatting } from '@teable/core';
 import type { ISelectFormulaConversionContext } from '../../../features/record/query-builder/sql-conversion.visitor';
 import { getDefaultDatetimeParsePattern } from '../../utils/default-datetime-parse-pattern';
 import {
@@ -439,6 +441,140 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
     // AT TIME ZONE returns timestamp without time zone in that zone
     return `(${sanitized})::timestamptz AT TIME ZONE '${safeTz}'`;
   }
+
+  private getDatePattern(date: DateFormattingPreset | string): string {
+    const presetValues = Object.values(DateFormattingPreset) as string[];
+    const normalizedPreset = presetValues.includes(date)
+      ? (date as DateFormattingPreset)
+      : DateFormattingPreset.ISO;
+
+    switch (normalizedPreset) {
+      case DateFormattingPreset.US:
+        return 'FMMM/FMDD/YYYY';
+      case DateFormattingPreset.European:
+        return 'FMDD/FMMM/YYYY';
+      case DateFormattingPreset.Asian:
+        return 'YYYY/MM/DD';
+      case DateFormattingPreset.YM:
+        return 'YYYY-MM';
+      case DateFormattingPreset.MD:
+        return 'MM-DD';
+      case DateFormattingPreset.Y:
+        return 'YYYY';
+      case DateFormattingPreset.M:
+        return 'MM';
+      case DateFormattingPreset.D:
+        return 'DD';
+      case DateFormattingPreset.ISO:
+      default:
+        return 'YYYY-MM-DD';
+    }
+  }
+
+  private getTimePattern(time?: TimeFormatting): string | null {
+    switch (time ?? TimeFormatting.None) {
+      case TimeFormatting.Hour24:
+        return 'HH24:MI';
+      case TimeFormatting.Hour12:
+        return 'HH12:MI AM';
+      default:
+        return null;
+    }
+  }
+
+  private buildDatetimeFormatting(formatting?: Partial<IDatetimeFormatting>): {
+    pattern: string;
+    timeZone: string;
+  } {
+    const datePattern = this.getDatePattern(formatting?.date ?? DateFormattingPreset.ISO);
+    const timePreset = formatting?.time as TimeFormatting | undefined;
+    const timePattern = this.getTimePattern(timePreset);
+    const pattern = (timePattern ? `${datePattern} ${timePattern}` : datePattern).replace(
+      /'/g,
+      "''"
+    );
+    const timeZone = (formatting?.timeZone ?? this.context?.timeZone ?? 'UTC').replace(/'/g, "''");
+    return { pattern, timeZone };
+  }
+
+  private normalizeAnyToJsonArray(expr: string): string {
+    const base = `(${expr})`;
+    const jsonExpr = `to_jsonb${base}`;
+    return `(CASE
+      WHEN ${base} IS NULL THEN '[]'::jsonb
+      WHEN jsonb_typeof(${jsonExpr}) = 'array' THEN COALESCE(${jsonExpr}, '[]'::jsonb)
+      ELSE jsonb_build_array(${jsonExpr})
+    END)`;
+  }
+
+  private extractFirstScalarFromMultiValue(expr: string): string {
+    const arrayExpr = this.normalizeAnyToJsonArray(expr);
+    return `(SELECT elem #>> '{}'
+      FROM jsonb_array_elements(${arrayExpr}) AS elem
+      WHERE jsonb_typeof(elem) NOT IN ('array','object')
+      LIMIT 1
+    )`;
+  }
+
+  private formatDatetimeOperandForSlice(expr: string, metadataIndex: number): string | null {
+    const paramInfo = this.getParamInfo(metadataIndex);
+    const cellValueType = paramInfo.fieldCellValueType?.toLowerCase();
+    let isDatetimeParam =
+      isDatetimeLikeParam(paramInfo) ||
+      cellValueType === 'datetime' ||
+      paramInfo.fieldDbType === DbFieldType.DateTime;
+
+    let formatting: IDatetimeFormatting | undefined;
+    let timeZoneSource: string | undefined;
+
+    if (paramInfo.hasMetadata) {
+      const fieldId = this.currentCallMetadata?.[metadataIndex]?.field?.id;
+      const field =
+        fieldId && this.context?.table ? this.context.table.getField(fieldId) : undefined;
+      formatting = (field as { options?: { formatting?: IDatetimeFormatting } } | undefined)
+        ?.options?.formatting;
+      timeZoneSource = formatting?.timeZone ?? this.context?.timeZone;
+    } else if (this.context?.table) {
+      const trimmed = this.stripOuterParentheses(expr);
+      const columnMatch = trimmed.match(/^"[^"]+"\."([^"]+)"$/) ?? trimmed.match(/^"([^"]+)"$/);
+      const dbName = columnMatch?.[1];
+      if (dbName) {
+        const field =
+          this.context.table.fieldList?.find((item) => item.dbFieldName === dbName) ??
+          this.context.table.fields?.ordered?.find((item) => item.dbFieldName === dbName);
+        if (field?.dbFieldType === DbFieldType.DateTime) {
+          isDatetimeParam = true;
+          formatting = (field as { options?: { formatting?: IDatetimeFormatting } } | undefined)
+            ?.options?.formatting;
+          timeZoneSource = formatting?.timeZone ?? this.context?.timeZone;
+        }
+      }
+    }
+
+    if (!isDatetimeParam) {
+      return null;
+    }
+
+    let normalizedExpr = expr;
+    if (paramInfo.isMultiValueField) {
+      normalizedExpr = this.extractFirstScalarFromMultiValue(expr);
+    }
+
+    const { pattern, timeZone } = this.buildDatetimeFormatting({
+      ...(formatting ?? {}),
+      timeZone: timeZoneSource ?? this.context?.timeZone ?? 'UTC',
+    });
+    const sanitized = this.sanitizeTimestampInput(normalizedExpr);
+    return `TO_CHAR((${sanitized})::timestamptz AT TIME ZONE '${timeZone}', '${pattern}')`;
+  }
+
+  private buildSliceOperand(expr: string, metadataIndex: number): string {
+    const formattedDatetime = this.formatDatetimeOperandForSlice(expr, metadataIndex);
+    if (formattedDatetime) {
+      return `(${formattedDatetime})`;
+    }
+    return `(${expr})::text`;
+  }
   // Numeric Functions
   sum(params: string[]): string {
     if (params.length === 0) {
@@ -572,19 +708,24 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
   }
 
   mid(text: string, startNum: string, numChars: string): string {
-    return `SUBSTRING((${text})::text FROM ${startNum}::integer FOR ${numChars}::integer)`;
+    const operand = this.buildSliceOperand(text, 0);
+    return `SUBSTRING(${operand} FROM ${startNum}::integer FOR ${numChars}::integer)`;
   }
 
   left(text: string, numChars: string): string {
-    return `LEFT((${text})::text, ${numChars}::integer)`;
+    const operand = this.buildSliceOperand(text, 0);
+    return `LEFT(${operand}, ${numChars}::integer)`;
   }
 
   right(text: string, numChars: string): string {
-    return `RIGHT((${text})::text, ${numChars}::integer)`;
+    const operand = this.buildSliceOperand(text, 0);
+    return `RIGHT(${operand}, ${numChars}::integer)`;
   }
 
   replace(oldText: string, startNum: string, numChars: string, newText: string): string {
-    return `OVERLAY(${oldText} PLACING ${newText} FROM ${startNum}::integer FOR ${numChars}::integer)`;
+    const source = this.buildSliceOperand(oldText, 0);
+    const replacement = this.buildSliceOperand(newText, 3);
+    return `OVERLAY(${source} PLACING ${replacement} FROM ${startNum}::integer FOR ${numChars}::integer)`;
   }
 
   regexpReplace(text: string, pattern: string, replacement: string): string {
