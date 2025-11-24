@@ -1640,6 +1640,47 @@ describe('OpenAPI formula (e2e)', () => {
       }
     );
 
+    it('should keep date field time formatting when concatenated with text', async () => {
+      const dateFormatting = {
+        date: DateFormattingPreset.ISO,
+        time: TimeFormatting.Hour24,
+        timeZone: 'Asia/Shanghai',
+      };
+
+      const dateField = await createField(table1Id, {
+        name: 'formatted-date',
+        type: FieldType.Date,
+        options: {
+          formatting: dateFormatting,
+        },
+      });
+
+      const concatField = await createField(table1Id, {
+        name: 'text-date-concat',
+        type: FieldType.Formula,
+        options: {
+          expression: `{${textFieldRo.id}} & ' @ ' & {${dateField.id}}`,
+        },
+      });
+
+      const prefix = 'Kickoff';
+      const sourceIso = '2024-05-06T12:34:56.000Z';
+      const { records } = await createRecords(table1Id, {
+        fieldKeyType: FieldKeyType.Name,
+        records: [
+          {
+            fields: {
+              [textFieldRo.name]: prefix,
+              [dateField.name]: sourceIso,
+            },
+          },
+        ],
+      });
+
+      const record = await getRecord(table1Id, records[0].id);
+      expect(record.data.fields[concatField.name]).toBe(`Kickoff @ 2024-05-06 12:34`);
+    });
+
     it('should evaluate nested FIND formula on select field consistently', async () => {
       const assignmentField = await createField(table1Id, {
         name: '归属/对接',
@@ -1928,6 +1969,613 @@ describe('OpenAPI formula (e2e)', () => {
           await permanentDeleteTable(baseId, host.id);
         }
         await permanentDeleteTable(baseId, foreign.id);
+      }
+    });
+
+    it('should treat lookup user value as truthy in IF', async () => {
+      const foreign = await createTable(baseId, {
+        name: 'formula-lookup-user-foreign',
+        fields: [
+          { name: 'Asset Title', type: FieldType.SingleLineText } as IFieldRo,
+          {
+            name: 'Owner',
+            type: FieldType.User,
+            options: { isMultiple: false, shouldNotify: false },
+          } as IFieldRo,
+        ],
+        records: [
+          {
+            fields: {
+              'Asset Title': 'Laptop',
+              Owner: {
+                id: globalThis.testConfig.userId,
+                title: globalThis.testConfig.userName,
+                email: globalThis.testConfig.email,
+              },
+            },
+          },
+        ],
+      });
+      let host: ITableFullVo | undefined;
+      try {
+        host = await createTable(baseId, {
+          name: 'formula-lookup-user-host',
+          fields: [{ name: 'Label', type: FieldType.SingleLineText } as IFieldRo],
+          records: [{ fields: { Label: 'row 1' } }],
+        });
+
+        const linkField = await createField(host.id, {
+          name: 'Owner Link',
+          type: FieldType.Link,
+          options: {
+            relationship: Relationship.ManyOne,
+            foreignTableId: foreign.id,
+          } as ILinkFieldOptionsRo,
+        } as IFieldRo);
+
+        const ownerFieldId = foreign.fields.find((field) => field.name === 'Owner')!.id;
+
+        const lookupField = await createField(host.id, {
+          name: 'Owner Lookup',
+          type: FieldType.User,
+          isLookup: true,
+          lookupOptions: {
+            foreignTableId: foreign.id,
+            lookupFieldId: ownerFieldId,
+            linkFieldId: linkField.id,
+          } as ILookupOptionsRo,
+        } as IFieldRo);
+
+        const statusField = await createField(host.id, {
+          name: 'Owner Status',
+          type: FieldType.Formula,
+          options: {
+            expression: `IF({${lookupField.id}}, '▶️ 在用', '✅ 闲置')`,
+          },
+        } as IFieldRo);
+
+        const hostRecordId = host.records[0].id;
+
+        await updateRecordByApi(host.id, hostRecordId, linkField.id, { id: foreign.records[0].id });
+
+        const linkedRecord = await getRecord(host.id, hostRecordId);
+        expect(linkedRecord.data.fields[statusField.name]).toBe('▶️ 在用');
+
+        await updateRecordByApi(host.id, hostRecordId, linkField.id, null);
+
+        const clearedRecord = await getRecord(host.id, hostRecordId);
+        expect(clearedRecord.data.fields[statusField.name]).toBe('✅ 闲置');
+      } finally {
+        if (host) {
+          await permanentDeleteTable(baseId, host.id);
+        }
+        await permanentDeleteTable(baseId, foreign.id);
+      }
+    });
+
+    it('should treat empty conditional lookup user as falsy in IF', async () => {
+      const foreign = await createTable(baseId, {
+        name: 'conditional-lookup-user-foreign',
+        fields: [
+          { name: 'Title', type: FieldType.SingleLineText } as IFieldRo,
+          { name: 'Status', type: FieldType.SingleLineText } as IFieldRo,
+          {
+            name: 'Owner',
+            type: FieldType.User,
+            options: { isMultiple: false, shouldNotify: false },
+          } as IFieldRo,
+        ],
+        records: [
+          {
+            fields: {
+              Title: 'Unavailable asset',
+              Status: 'Inactive',
+              Owner: {
+                id: globalThis.testConfig.userId,
+                title: globalThis.testConfig.userName,
+                email: globalThis.testConfig.email,
+              },
+            },
+          },
+        ],
+      });
+
+      let host: ITableFullVo | undefined;
+      try {
+        host = await createTable(baseId, {
+          name: 'conditional-lookup-user-host',
+          fields: [{ name: 'Label', type: FieldType.SingleLineText } as IFieldRo],
+          records: [{ fields: { Label: 'row 1' } }],
+        });
+
+        const ownerFieldId = foreign.fields.find((field) => field.name === 'Owner')!.id;
+        const statusFieldId = foreign.fields.find((field) => field.name === 'Status')!.id;
+
+        const lookupField = await createField(host.id, {
+          name: 'Filtered Owner',
+          type: FieldType.User,
+          isLookup: true,
+          isConditionalLookup: true,
+          lookupOptions: {
+            foreignTableId: foreign.id,
+            lookupFieldId: ownerFieldId,
+            filter: {
+              conjunction: 'and',
+              filterSet: [
+                {
+                  fieldId: statusFieldId,
+                  operator: 'is',
+                  value: 'Active',
+                },
+              ],
+            },
+          } as ILookupOptionsRo,
+        } as IFieldRo);
+
+        const statusField = await createField(host.id, {
+          name: 'Filtered Owner Status',
+          type: FieldType.Formula,
+          options: {
+            expression: `IF({${lookupField.id}}, '▶️ 在用', '✅ 闲置')`,
+          },
+        } as IFieldRo);
+
+        const hostRecordId = host.records[0].id;
+        const record = await getRecord(host.id, hostRecordId);
+        const lookupValue = record.data.fields[lookupField.name];
+
+        expect(
+          lookupValue == null || (Array.isArray(lookupValue) && lookupValue.length === 0)
+        ).toBe(true);
+        expect(record.data.fields[statusField.name]).toBe('✅ 闲置');
+      } finally {
+        if (host) {
+          await permanentDeleteTable(baseId, host.id);
+        }
+        await permanentDeleteTable(baseId, foreign.id);
+      }
+    });
+
+    it('should evaluate IF for multi-value lookup user when links are empty', async () => {
+      const foreign = await createTable(baseId, {
+        name: 'multi-lookup-user-foreign',
+        fields: [
+          { name: 'Title', type: FieldType.SingleLineText } as IFieldRo,
+          {
+            name: 'Owner',
+            type: FieldType.User,
+            options: { isMultiple: false, shouldNotify: false },
+          } as IFieldRo,
+        ],
+        records: [
+          {
+            fields: {
+              Title: 'Shared asset',
+              Owner: {
+                id: globalThis.testConfig.userId,
+                title: globalThis.testConfig.userName,
+                email: globalThis.testConfig.email,
+              },
+            },
+          },
+        ],
+      });
+
+      let host: ITableFullVo | undefined;
+      try {
+        host = await createTable(baseId, {
+          name: 'multi-lookup-user-host',
+          fields: [{ name: 'Label', type: FieldType.SingleLineText } as IFieldRo],
+          records: [{ fields: { Label: 'row 1' } }],
+        });
+
+        const linkField = await createField(host.id, {
+          name: 'Owners Link',
+          type: FieldType.Link,
+          options: {
+            relationship: Relationship.ManyMany,
+            foreignTableId: foreign.id,
+          } as ILinkFieldOptionsRo,
+        } as IFieldRo);
+
+        const ownerFieldId = foreign.fields.find((field) => field.name === 'Owner')!.id;
+
+        const lookupField = await createField(host.id, {
+          name: 'Owners Lookup',
+          type: FieldType.User,
+          isLookup: true,
+          lookupOptions: {
+            foreignTableId: foreign.id,
+            lookupFieldId: ownerFieldId,
+            linkFieldId: linkField.id,
+          } as ILookupOptionsRo,
+        } as IFieldRo);
+
+        const statusField = await createField(host.id, {
+          name: 'Owners Status',
+          type: FieldType.Formula,
+          options: {
+            expression: `IF({${lookupField.id}}, '▶️ 在用', '✅ 闲置')`,
+          },
+        } as IFieldRo);
+
+        const hostRecordId = host.records[0].id;
+        const initialRecord = await getRecord(host.id, hostRecordId);
+        expect(initialRecord.data.fields[lookupField.name]).toBeUndefined();
+        expect(initialRecord.data.fields[statusField.name]).toBe('✅ 闲置');
+
+        await updateRecordByApi(host.id, hostRecordId, linkField.id, [
+          { id: foreign.records[0].id },
+        ]);
+
+        const linkedRecord = await getRecord(host.id, hostRecordId);
+        expect(linkedRecord.data.fields[lookupField.name]).toHaveLength(1);
+        expect(linkedRecord.data.fields[statusField.name]).toBe('▶️ 在用');
+
+        await updateRecordByApi(host.id, hostRecordId, linkField.id, null);
+        const clearedRecord = await getRecord(host.id, hostRecordId);
+        const clearedLookup = clearedRecord.data.fields[lookupField.name];
+        expect(
+          clearedLookup == null || (Array.isArray(clearedLookup) && clearedLookup.length === 0)
+        ).toBe(true);
+        expect(clearedRecord.data.fields[statusField.name]).toBe('✅ 闲置');
+      } finally {
+        if (host) {
+          await permanentDeleteTable(baseId, host.id);
+        }
+        await permanentDeleteTable(baseId, foreign.id);
+      }
+    });
+
+    it('should treat nested conditional lookup arrays as falsy in IF', async () => {
+      const source = await createTable(baseId, {
+        name: 'nested-lookup-source',
+        fields: [
+          { name: 'Title', type: FieldType.SingleLineText } as IFieldRo,
+          { name: 'Status', type: FieldType.SingleLineText } as IFieldRo,
+          {
+            name: 'Owner',
+            type: FieldType.User,
+            options: { isMultiple: false, shouldNotify: false },
+          } as IFieldRo,
+        ],
+        records: [
+          {
+            fields: {
+              Title: 'source',
+              Status: 'Inactive',
+              Owner: {
+                id: globalThis.testConfig.userId,
+                title: globalThis.testConfig.userName,
+                email: globalThis.testConfig.email,
+              },
+            },
+          },
+        ],
+      });
+
+      let middle: ITableFullVo | undefined;
+      let host: ITableFullVo | undefined;
+      try {
+        middle = await createTable(baseId, {
+          name: 'nested-lookup-middle',
+          fields: [{ name: 'Label', type: FieldType.SingleLineText } as IFieldRo],
+          records: [{ fields: { Label: 'middle' } }],
+        });
+
+        const sourceOwnerFieldId = source.fields.find((field) => field.name === 'Owner')!.id;
+        const sourceStatusFieldId = source.fields.find((field) => field.name === 'Status')!.id;
+
+        const activeOwner = await createField(middle.id, {
+          name: 'Active Owner',
+          type: FieldType.User,
+          isLookup: true,
+          isConditionalLookup: true,
+          lookupOptions: {
+            foreignTableId: source.id,
+            lookupFieldId: sourceOwnerFieldId,
+            filter: {
+              conjunction: 'and',
+              filterSet: [
+                {
+                  fieldId: sourceStatusFieldId,
+                  operator: 'is',
+                  value: 'Active',
+                },
+              ],
+            },
+          } as ILookupOptionsRo,
+        } as IFieldRo);
+
+        host = await createTable(baseId, {
+          name: 'nested-lookup-host',
+          fields: [{ name: 'Label', type: FieldType.SingleLineText } as IFieldRo],
+          records: [{ fields: { Label: 'host' } }],
+        });
+
+        const middleLabelId = middle.fields.find((field) => field.name === 'Label')!.id;
+
+        const nestedLookup = await createField(host.id, {
+          name: 'Nested Active Owner',
+          type: FieldType.User,
+          isLookup: true,
+          isConditionalLookup: true,
+          lookupOptions: {
+            foreignTableId: middle.id,
+            lookupFieldId: activeOwner.id,
+            filter: {
+              conjunction: 'and',
+              filterSet: [
+                {
+                  fieldId: middleLabelId,
+                  operator: 'is',
+                  value: 'middle',
+                },
+              ],
+            },
+          } as ILookupOptionsRo,
+        } as IFieldRo);
+
+        const statusField = await createField(host.id, {
+          name: 'Nested Owner Status',
+          type: FieldType.Formula,
+          options: {
+            expression: `IF({${nestedLookup.id}}, '▶️ 在用', '✅ 闲置')`,
+          },
+        } as IFieldRo);
+
+        const hostRecordId = host.records[0].id;
+        const hostLabelFieldId = host.fields.find((field) => field.name === 'Label')!.id;
+        await updateRecordByApi(host.id, hostRecordId, hostLabelFieldId, 'host');
+
+        const record = await getRecord(host.id, hostRecordId);
+
+        const nestedValue = record.data.fields[nestedLookup.name];
+
+        expect(
+          nestedValue == null || (Array.isArray(nestedValue) && nestedValue.length === 0)
+        ).toBe(true);
+        expect(record.data.fields[statusField.name]).toBe('✅ 闲置');
+      } finally {
+        if (host) {
+          await permanentDeleteTable(baseId, host.id);
+        }
+        if (middle) {
+          await permanentDeleteTable(baseId, middle.id);
+        }
+        await permanentDeleteTable(baseId, source.id);
+      }
+    });
+
+    it('should return user lookup with empty filter target and drive IF truthiness', async () => {
+      const applicant = {
+        id: globalThis.testConfig.userId,
+        title: globalThis.testConfig.userName,
+        email: globalThis.testConfig.email,
+      };
+
+      const foreign = await createTable(baseId, {
+        name: 'lookup-filter-foreign',
+        fields: [
+          { name: 'Request No', type: FieldType.SingleLineText } as IFieldRo,
+          { name: 'Return Date', type: FieldType.Date } as IFieldRo,
+          {
+            name: 'Applicant',
+            type: FieldType.User,
+            options: { isMultiple: false, shouldNotify: false },
+          } as IFieldRo,
+        ],
+        records: [
+          {
+            fields: {
+              'Request No': 'AP-null',
+              'Return Date': null,
+              Applicant: applicant,
+            },
+          },
+          {
+            fields: {
+              'Request No': 'AP-returned',
+              'Return Date': '2024-10-20T00:00:00.000Z',
+              Applicant: applicant,
+            },
+          },
+        ],
+      });
+
+      let host: ITableFullVo | undefined;
+      try {
+        host = await createTable(baseId, {
+          name: 'lookup-filter-host',
+          fields: [{ name: 'Asset', type: FieldType.SingleLineText } as IFieldRo],
+          records: [{ fields: { Asset: 'A-null' } }, { fields: { Asset: 'A-returned' } }],
+        });
+
+        const linkField = await createField(host.id, {
+          name: 'Usage Link',
+          type: FieldType.Link,
+          options: {
+            relationship: Relationship.ManyOne,
+            foreignTableId: foreign.id,
+          } as ILinkFieldOptionsRo,
+        } as IFieldRo);
+
+        const returnFieldId = foreign.fields.find((f) => f.name === 'Return Date')!.id;
+        const applicantFieldId = foreign.fields.find((f) => f.name === 'Applicant')!.id;
+
+        const lookupField = await createField(host.id, {
+          name: 'Active Applicant',
+          type: FieldType.User,
+          isLookup: true,
+          lookupOptions: {
+            foreignTableId: foreign.id,
+            lookupFieldId: applicantFieldId,
+            linkFieldId: linkField.id,
+            filter: {
+              conjunction: 'and',
+              filterSet: [
+                {
+                  fieldId: returnFieldId,
+                  operator: 'isEmpty',
+                  value: null,
+                },
+              ],
+            },
+          } as ILookupOptionsRo,
+        } as IFieldRo);
+
+        const statusField = await createField(host.id, {
+          name: 'Active Status',
+          type: FieldType.Formula,
+          options: {
+            expression: `IF({${lookupField.id}}, '▶️ 在用', '✅ 闲置')`,
+          },
+        } as IFieldRo);
+
+        const [assetNull, assetReturned] = host.records;
+
+        await updateRecordByApi(host.id, assetNull.id, linkField.id, { id: foreign.records[0].id });
+        await updateRecordByApi(host.id, assetReturned.id, linkField.id, {
+          id: foreign.records[1].id,
+        });
+
+        const recordNull = await getRecord(host.id, assetNull.id);
+        const recordReturned = await getRecord(host.id, assetReturned.id);
+
+        expect(recordNull.data.fields[lookupField.name]).toMatchObject(applicant);
+        expect(recordNull.data.fields[statusField.name]).toBe('▶️ 在用');
+
+        expect(recordReturned.data.fields[lookupField.name]).toBeUndefined();
+        expect(recordReturned.data.fields[statusField.name]).toBe('✅ 闲置');
+      } finally {
+        if (host) {
+          await permanentDeleteTable(baseId, host.id);
+        }
+        await permanentDeleteTable(baseId, foreign.id);
+      }
+    });
+
+    it('should resolve filtered lookup user only when return link is empty', async () => {
+      const applicant = {
+        id: globalThis.testConfig.userId,
+        title: globalThis.testConfig.userName,
+        email: globalThis.testConfig.email,
+      };
+
+      const returnTable = await createTable(baseId, {
+        name: 'return-records',
+        fields: [{ name: 'Return ID', type: FieldType.SingleLineText } as IFieldRo],
+        records: [{ fields: { 'Return ID': 'RB-001' } }, { fields: { 'Return ID': 'RB-002' } }],
+      });
+
+      const usageTable = await createTable(baseId, {
+        name: 'usage-records',
+        fields: [
+          { name: 'Request No', type: FieldType.SingleLineText } as IFieldRo,
+          {
+            name: 'Applicant',
+            type: FieldType.User,
+            options: { isMultiple: false, shouldNotify: false },
+          } as IFieldRo,
+          {
+            name: 'Return Link',
+            type: FieldType.Link,
+            options: {
+              relationship: Relationship.ManyOne,
+              foreignTableId: returnTable.id,
+            } as ILinkFieldOptionsRo,
+          } as IFieldRo,
+        ],
+      });
+
+      const returnLinkFieldId = usageTable.fields.find((f) => f.name === 'Return Link')!.id;
+      const applicantFieldId = usageTable.fields.find((f) => f.name === 'Applicant')!.id;
+
+      const { records: usageRecords } = await createRecords(usageTable.id, {
+        fieldKeyType: FieldKeyType.Name,
+        records: [
+          {
+            fields: {
+              'Request No': 'AP-returned',
+              Applicant: applicant,
+            },
+          },
+          {
+            fields: {
+              'Request No': 'AP-active',
+              Applicant: applicant,
+            },
+          },
+        ],
+      });
+
+      await updateRecordByApi(usageTable.id, usageRecords[0].id, returnLinkFieldId, {
+        id: returnTable.records[0].id,
+      });
+      await updateRecordByApi(usageTable.id, usageRecords[1].id, returnLinkFieldId, null);
+
+      let assetTable: ITableFullVo | undefined;
+      try {
+        assetTable = await createTable(baseId, {
+          name: 'asset-info',
+          fields: [
+            { name: 'Asset Code', type: FieldType.SingleLineText } as IFieldRo,
+            {
+              name: 'Usage Link',
+              type: FieldType.Link,
+              options: {
+                relationship: Relationship.ManyOne,
+                foreignTableId: usageTable.id,
+              } as ILinkFieldOptionsRo,
+            } as IFieldRo,
+          ],
+          records: [
+            { fields: { 'Asset Code': 'A-returned' } },
+            { fields: { 'Asset Code': 'A-active' } },
+          ],
+        });
+
+        const usageLinkFieldId = assetTable.fields.find((f) => f.name === 'Usage Link')!.id;
+
+        const lookupField = await createField(assetTable.id, {
+          name: 'Filtered User',
+          type: FieldType.User,
+          isLookup: true,
+          lookupOptions: {
+            foreignTableId: usageTable.id,
+            lookupFieldId: applicantFieldId,
+            linkFieldId: usageLinkFieldId,
+            filter: {
+              conjunction: 'and',
+              filterSet: [
+                {
+                  fieldId: returnLinkFieldId,
+                  operator: 'isEmpty',
+                  value: null,
+                },
+              ],
+            },
+          } as ILookupOptionsRo,
+        } as IFieldRo);
+
+        await updateRecordByApi(assetTable.id, assetTable.records[0].id, usageLinkFieldId, {
+          id: usageRecords[0].id,
+        });
+        await updateRecordByApi(assetTable.id, assetTable.records[1].id, usageLinkFieldId, {
+          id: usageRecords[1].id,
+        });
+
+        const returnedAsset = await getRecord(assetTable.id, assetTable.records[0].id);
+        const activeAsset = await getRecord(assetTable.id, assetTable.records[1].id);
+
+        expect(returnedAsset.data.fields[lookupField.name]).toBeUndefined();
+        expect(activeAsset.data.fields[lookupField.name]).toMatchObject(applicant);
+      } finally {
+        if (assetTable) {
+          await permanentDeleteTable(baseId, assetTable.id);
+        }
+        await permanentDeleteTable(baseId, usageTable.id);
+        await permanentDeleteTable(baseId, returnTable.id);
       }
     });
 
