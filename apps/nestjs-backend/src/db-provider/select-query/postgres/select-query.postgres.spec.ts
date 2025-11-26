@@ -15,6 +15,7 @@ import { createFieldInstanceByVo } from '../../../features/field/model/factory';
 import type { IFieldSelectName } from '../../../features/record/query-builder/field-select.type';
 import type { ISelectFormulaConversionContext } from '../../../features/record/query-builder/sql-conversion.visitor';
 import { PostgresProvider } from '../../postgres.provider';
+import { getDefaultDatetimeParsePattern } from '../../utils/default-datetime-parse-pattern';
 import { SelectQueryPostgres } from './select-query.postgres';
 
 describe('SelectQueryPostgres unit-aware date helpers', () => {
@@ -35,7 +36,8 @@ describe('SelectQueryPostgres unit-aware date helpers', () => {
 
   const sanitizeTimestampInput = (expr: string) => {
     const trimmed = `NULLIF(BTRIM((${expr})::text), '')`;
-    return `CASE WHEN ${trimmed} IS NULL THEN NULL WHEN LOWER(${trimmed}) IN ('null', 'undefined') THEN NULL ELSE ${trimmed} END`;
+    const pattern = getDefaultDatetimeParsePattern().replace(/'/g, "''");
+    return `CASE WHEN ${trimmed} IS NULL THEN NULL WHEN LOWER(${trimmed}) IN ('null', 'undefined') THEN NULL WHEN ${trimmed} ~ '${pattern}' THEN ${trimmed} ELSE NULL END`;
   };
   const tzWrap = (expr: string, timeZone: string) => {
     const safeTz = timeZone.replace(/'/g, "''");

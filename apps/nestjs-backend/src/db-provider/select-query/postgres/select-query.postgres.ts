@@ -108,10 +108,10 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
       !paramInfo.isJsonField &&
       !paramInfo.isMultiValueField
     ) {
-      return this.numericFromText(expr);
+      return this.looseNumericCoercion(expr);
     }
     if (expressionFieldType === DbFieldType.Text) {
-      return this.numericFromText(expr);
+      return this.looseNumericCoercion(expr);
     }
     if (paramInfo?.isJsonField || paramInfo?.isMultiValueField) {
       return this.numericFromJson(expr);
@@ -141,17 +141,26 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
       return `(${expr})::double precision`;
     }
     const textExpr = `((${expr})::text) COLLATE "C"`;
+    // Avoid treating obvious date-like strings (e.g., 2024/12/03) as numbers
+    const dateLikePattern = `'^[0-9]{1,4}[-/][0-9]{1,2}[-/][0-9]{1,4}( .*){0,1}$'`;
+    const collatedDatePattern = `${dateLikePattern} COLLATE "C"`;
     const sanitized = `REGEXP_REPLACE(${textExpr}, '[^0-9.+-]', '', 'g')`;
     const cleaned = `NULLIF(${sanitized}, '')`;
     const collatedClean = `${cleaned} COLLATE "C"`;
     // Avoid "?" in the regex so knex.raw doesn't misinterpret it as a binding placeholder.
     const numericPattern = `'^[+-]{0,1}(\\d+(\\.\\d+){0,1}|\\.\\d+)$'`;
     const collatedPattern = `${numericPattern} COLLATE "C"`;
-    return `(CASE WHEN ${cleaned} IS NULL THEN NULL WHEN ${collatedClean} ~ ${collatedPattern} THEN ${cleaned}::double precision ELSE NULL END)`;
+    return `(CASE
+      WHEN ${expr} IS NULL THEN NULL
+      WHEN ${textExpr} ~ ${collatedDatePattern} THEN NULL
+      WHEN ${cleaned} IS NULL THEN NULL
+      WHEN ${collatedClean} ~ ${collatedPattern} THEN ${cleaned}::double precision
+      ELSE NULL
+    END)`;
   }
 
   private numericFromJson(expr: string): string {
-    const jsonExpr = `(${expr})::jsonb`;
+    const jsonExpr = `to_jsonb(${expr})`;
     const numericPattern = `'^[+-]{0,1}(\\d+(\\.\\d+){0,1}|\\.\\d+)$'`;
     const collatedPattern = `${numericPattern} COLLATE "C"`;
     const arraySum = `(SELECT SUM(CASE WHEN (elem.value COLLATE "C") ~ ${collatedPattern} THEN elem.value::double precision ELSE NULL END) FROM jsonb_array_elements_text(${jsonExpr}) AS elem(value))`;
@@ -597,7 +606,8 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
 
   private sanitizeTimestampInput(date: string): string {
     const trimmed = `NULLIF(BTRIM((${date})::text), '')`;
-    return `CASE WHEN ${trimmed} IS NULL THEN NULL WHEN LOWER(${trimmed}) IN ('null', 'undefined') THEN NULL ELSE ${trimmed} END`;
+    const pattern = getDefaultDatetimeParsePattern().replace(/'/g, "''");
+    return `CASE WHEN ${trimmed} IS NULL THEN NULL WHEN LOWER(${trimmed}) IN ('null', 'undefined') THEN NULL WHEN ${trimmed} ~ '${pattern}' THEN ${trimmed} ELSE NULL END`;
   }
 
   private isTrustedDatetime(expr: string, metadataIndex?: number): boolean {
@@ -876,7 +886,8 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
     const numericValue = this.toNumericSafe(value, 0);
     if (base !== undefined) {
       const numericBase = this.toNumericSafe(base, 1);
-      return `LOG(${numericBase}, ${numericValue})`;
+      const baseLog = `LN(${numericBase})`;
+      return `(LN(${numericValue}) / NULLIF(${baseLog}, 0))`;
     }
     return `LN(${numericValue})`;
   }
@@ -884,7 +895,7 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
   mod(dividend: string, divisor: string): string {
     const safeDividend = this.toNumericSafe(dividend, 0);
     const safeDivisor = this.toNumericSafe(divisor, 1);
-    return `MOD(${safeDividend}, ${safeDivisor})`;
+    return `(CASE WHEN (${safeDivisor}) IS NULL OR (${safeDivisor}) = 0 THEN NULL ELSE MOD((${safeDividend})::numeric, (${safeDivisor})::numeric)::double precision END)`;
   }
 
   value(text: string): string {

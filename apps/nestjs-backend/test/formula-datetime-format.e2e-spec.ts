@@ -106,4 +106,47 @@ describe('Formula DATETIME_FORMAT token semantics (e2e)', () => {
       }
     }
   });
+
+  it('returns null instead of throwing when formatting non-datetime text', async () => {
+    let tableId: string | undefined;
+    const textFieldId = generateFieldId();
+
+    try {
+      const table = await createTable(baseId, {
+        name: 'formula-datetime-format-invalid-text',
+        fields: [
+          { id: textFieldId, name: 'raw_text', type: FieldType.SingleLineText },
+          {
+            name: 'formatted_invalid',
+            type: FieldType.Formula,
+            options: {
+              expression: `DATETIME_FORMAT({${textFieldId}}, 'YYYY-MM-DD HH:mm')`,
+              timeZone: 'Asia/Shanghai',
+            },
+          },
+        ],
+      });
+      tableId = table.id;
+
+      const formattedFieldId =
+        table.fields.find((f) => f.name === 'formatted_invalid')?.id ??
+        (() => {
+          throw new Error('formatted_invalid field not found');
+        })();
+
+      const { records } = await createRecords(tableId, {
+        fieldKeyType: FieldKeyType.Name,
+        records: [{ fields: { raw_text: '2' } }],
+      });
+
+      const record = await getRecord(tableId, records[0].id);
+      const fields = record.fields;
+      const value = fields?.[formattedFieldId as string];
+      expect(value ?? null).toBeNull();
+    } finally {
+      if (tableId) {
+        await permanentDeleteTable(baseId, tableId);
+      }
+    }
+  });
 });
