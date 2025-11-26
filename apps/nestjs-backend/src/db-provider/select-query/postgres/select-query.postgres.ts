@@ -97,14 +97,35 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
       return `(${expr})::double precision`;
     }
     const paramInfo = this.getParamInfo(metadataIndex);
+    const expressionFieldType = this.getExpressionFieldType(expr);
     if (isBooleanLikeParam(paramInfo)) {
       const boolScore = this.truthinessScore(expr, metadataIndex);
       return `(${boolScore})::double precision`;
     }
-    if (paramInfo.isJsonField || paramInfo.isMultiValueField) {
+    if (
+      paramInfo?.hasMetadata &&
+      isTextLikeParam(paramInfo) &&
+      !paramInfo.isJsonField &&
+      !paramInfo.isMultiValueField
+    ) {
+      return this.numericFromText(expr);
+    }
+    if (expressionFieldType === DbFieldType.Text) {
+      return this.numericFromText(expr);
+    }
+    if (paramInfo?.isJsonField || paramInfo?.isMultiValueField) {
+      return this.numericFromJson(expr);
+    }
+    if (expressionFieldType === DbFieldType.Json) {
       return this.numericFromJson(expr);
     }
     if (isTrustedNumeric(paramInfo)) {
+      return `(${expr})::double precision`;
+    }
+    if (
+      !paramInfo?.hasMetadata &&
+      (expressionFieldType === DbFieldType.Real || expressionFieldType === DbFieldType.Integer)
+    ) {
       return `(${expr})::double precision`;
     }
 
@@ -138,6 +159,17 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
       WHEN ${expr} IS NULL THEN NULL
       WHEN jsonb_typeof(${jsonExpr}) = 'array' THEN ${arraySum}
       ELSE ${this.looseNumericCoercion(expr)}
+    END)`;
+  }
+
+  private numericFromText(expr: string): string {
+    const textExpr = `((${expr})::text) COLLATE "C"`;
+    const numericPattern = `'^[+-]{0,1}(\\d+(\\.\\d+){0,1}|\\.\\d+)$'`;
+    const collatedPattern = `${numericPattern} COLLATE "C"`;
+    return `(CASE
+      WHEN ${expr} IS NULL THEN NULL
+      WHEN ${textExpr} ~ ${collatedPattern} THEN ${textExpr}::double precision
+      ELSE NULL
     END)`;
   }
 
@@ -779,64 +811,80 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
   }
 
   roundUp(value: string, precision?: string): string {
-    if (precision) {
-      return `CEIL(${value}::numeric * POWER(10, ${precision}::integer)) / POWER(10, ${precision}::integer)`;
+    const numericValue = this.toNumericSafe(value, 0);
+    if (precision !== undefined) {
+      const numericPrecision = this.toNumericSafe(precision, 1);
+      const factor = `POWER(10, ${numericPrecision}::integer)`;
+      return `CEIL(${numericValue} * ${factor}) / ${factor}`;
     }
-    return `CEIL(${value}::numeric)`;
+    return `CEIL(${numericValue})`;
   }
 
   roundDown(value: string, precision?: string): string {
-    if (precision) {
-      return `FLOOR(${value}::numeric * POWER(10, ${precision}::integer)) / POWER(10, ${precision}::integer)`;
+    const numericValue = this.toNumericSafe(value, 0);
+    if (precision !== undefined) {
+      const numericPrecision = this.toNumericSafe(precision, 1);
+      const factor = `POWER(10, ${numericPrecision}::integer)`;
+      return `FLOOR(${numericValue} * ${factor}) / ${factor}`;
     }
-    return `FLOOR(${value}::numeric)`;
+    return `FLOOR(${numericValue})`;
   }
 
   ceiling(value: string): string {
-    return `CEIL(${value}::numeric)`;
+    return `CEIL(${this.toNumericSafe(value, 0)})`;
   }
 
   floor(value: string): string {
-    return `FLOOR(${value}::numeric)`;
+    return `FLOOR(${this.toNumericSafe(value, 0)})`;
   }
 
   even(value: string): string {
-    return `CASE WHEN ${value}::integer % 2 = 0 THEN ${value}::integer ELSE ${value}::integer + 1 END`;
+    const numericValue = this.toNumericSafe(value, 0);
+    const intValue = `FLOOR(${numericValue})::integer`;
+    return `CASE WHEN ${numericValue} IS NULL THEN NULL WHEN ${intValue} % 2 = 0 THEN ${intValue} ELSE ${intValue} + 1 END`;
   }
 
   odd(value: string): string {
-    return `CASE WHEN ${value}::integer % 2 = 1 THEN ${value}::integer ELSE ${value}::integer + 1 END`;
+    const numericValue = this.toNumericSafe(value, 0);
+    const intValue = `FLOOR(${numericValue})::integer`;
+    return `CASE WHEN ${numericValue} IS NULL THEN NULL WHEN ${intValue} % 2 = 1 THEN ${intValue} ELSE ${intValue} + 1 END`;
   }
 
   int(value: string): string {
-    return `FLOOR(${value}::numeric)`;
+    return `FLOOR(${this.toNumericSafe(value, 0)})`;
   }
 
   abs(value: string): string {
-    return `ABS(${value}::numeric)`;
+    return `ABS(${this.toNumericSafe(value, 0)})`;
   }
 
   sqrt(value: string): string {
-    return `SQRT(${value}::numeric)`;
+    return `SQRT(${this.toNumericSafe(value, 0)})`;
   }
 
   power(base: string, exponent: string): string {
-    return `POWER(${base}::numeric, ${exponent}::numeric)`;
+    const baseValue = this.toNumericSafe(base, 0);
+    const exponentValue = this.toNumericSafe(exponent, 1);
+    return `POWER(${baseValue}, ${exponentValue})`;
   }
 
   exp(value: string): string {
-    return `EXP(${value}::numeric)`;
+    return `EXP(${this.toNumericSafe(value, 0)})`;
   }
 
   log(value: string, base?: string): string {
-    if (base) {
-      return `LOG(${base}::numeric, ${value}::numeric)`;
+    const numericValue = this.toNumericSafe(value, 0);
+    if (base !== undefined) {
+      const numericBase = this.toNumericSafe(base, 1);
+      return `LOG(${numericBase}, ${numericValue})`;
     }
-    return `LN(${value}::numeric)`;
+    return `LN(${numericValue})`;
   }
 
   mod(dividend: string, divisor: string): string {
-    return `MOD(${dividend}::numeric, ${divisor}::numeric)`;
+    const safeDividend = this.toNumericSafe(dividend, 0);
+    const safeDivisor = this.toNumericSafe(divisor, 1);
+    return `MOD(${safeDividend}, ${safeDivisor})`;
   }
 
   value(text: string): string {

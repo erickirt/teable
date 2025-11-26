@@ -303,6 +303,61 @@ describe('Formula meta persistedAsGeneratedColumn (e2e)', () => {
     });
   });
 
+  describe('generated formula duplication tolerates text that is not numeric', () => {
+    let table: ITableFullVo;
+
+    beforeEach(async () => {
+      table = await createTable(baseId, {
+        name: 'formula-meta-duplicate-text',
+        fields: [{ name: 'A', type: FieldType.SingleLineText }],
+        records: [{ fields: { A: '45629' } }, { fields: { A: '2024/12/03' } }],
+      });
+    });
+
+    afterEach(async () => {
+      if (table?.id) {
+        await deleteTable(baseId, table.id);
+      }
+    });
+
+    const waitForCopyValues = async (fieldId: string) => {
+      const start = Date.now();
+      while (Date.now() - start < 8000) {
+        const records = await getRecords(table.id, { fieldKeyType: FieldKeyType.Id });
+        const recs = records.records ?? [];
+        if (recs.every((r) => r.fields && r.fields[fieldId] !== undefined)) {
+          return recs;
+        }
+        await sleep(200);
+      }
+      throw new Error('Timed out waiting for duplicated formula values');
+    };
+
+    it('duplicates without throwing even when the base text cannot cast to numeric', async () => {
+      const aId = table.fields.find((f) => f.name === 'A')!.id;
+
+      const formula = await createField(table.id, {
+        name: 'Generated Formula',
+        type: FieldType.Formula,
+        options: {
+          expression: `IF(INT({${aId}}), DATE_ADD("1990-01-01", ROUND({${aId}}), "day"), {${aId}})`,
+          timeZone: 'Asia/Shanghai',
+        },
+      });
+
+      const duplicateRes = await duplicateField(table.id, formula.id, { name: 'Generated Copy' });
+      const copyId = duplicateRes.data.id;
+
+      const records = await waitForCopyValues(copyId);
+      const originalValues = records.map((r) => r.fields?.[formula.id]);
+      const copyValues = records.map((r) => r.fields?.[copyId]);
+
+      expect(copyValues).toEqual(originalValues);
+      expect(copyValues[1]).toBe('2024/12/03');
+      expect(String(copyValues[0])).toMatch(/2114-12-0[56]/);
+    });
+  });
+
   describe('formula metadata resets when expressions become unsupported', () => {
     let table: ITableFullVo;
 
