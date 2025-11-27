@@ -6,6 +6,7 @@
  * - ss / s map to second tokens (SS / FMSS)
  * Other common tokens are passed through as-is.
  */
+// eslint-disable-next-line @typescript-eslint/naming-convention
 const DEFAULT_DATETIME_FORMAT_EXPR = "'YYYY-MM-DD'";
 
 export const normalizeAirtableDatetimeFormatExpression = (formatExpr?: string | null): string => {

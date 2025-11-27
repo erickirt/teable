@@ -211,6 +211,9 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
     if (!paramInfo?.hasMetadata) {
       return false;
     }
+    if (paramInfo.type === 'number') {
+      return false;
+    }
     const looksDatetime =
       isDatetimeLikeParam(paramInfo) ||
       paramInfo.fieldDbType === DbFieldType.DateTime ||
@@ -673,6 +676,11 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
   private shouldTreatAsDatetime(expr: string, metadataIndex?: number): boolean {
     const paramInfo = this.getParamInfo(metadataIndex);
     if (paramInfo?.hasMetadata) {
+      // Explicit numeric/boolean metadata should not be coerced into datetime even if the expression
+      // happens to contain timestamp-ish tokens (e.g. nested EXTRACT(... AT TIME ZONE ...)).
+      if (paramInfo.type === 'number' || paramInfo.type === 'boolean') {
+        return false;
+      }
       const looksDatetime =
         isDatetimeLikeParam(paramInfo) ||
         paramInfo.fieldDbType === DbFieldType.DateTime ||
@@ -1278,11 +1286,17 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
   }
 
   workday(startDate: string, days: string): string {
+    if (!this.isDateLikeOperand(0)) {
+      return 'NULL';
+    }
     // Simplified implementation in the target timezone; tzWrap sanitizes untrusted inputs
     return `(${this.tzWrap(startDate, 0)})::date + INTERVAL '${days} days'`;
   }
 
   workdayDiff(startDate: string, endDate: string): string {
+    if (!this.isDateLikeOperand(0) || !this.isDateLikeOperand(1)) {
+      return 'NULL';
+    }
     // Simplified implementation with timezone-aware, sanitized inputs
     const start = `(${this.tzWrap(startDate, 0)})`;
     const end = `(${this.tzWrap(endDate, 1)})`;
@@ -1345,8 +1359,18 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
 
   if(condition: string, valueIfTrue: string, valueIfFalse: string): string {
     const truthinessScore = this.truthinessScore(condition, 0);
-    const trueIsBlank = this.isEmptyStringLiteral(valueIfTrue);
-    const falseIsBlank = this.isEmptyStringLiteral(valueIfFalse);
+    const trueIsBlank = this.isEmptyStringLiteral(valueIfTrue) || this.isNullLiteral(valueIfTrue);
+    const falseIsBlank =
+      this.isEmptyStringLiteral(valueIfFalse) || this.isNullLiteral(valueIfFalse);
+    const targetType = (this.context as ISelectFormulaConversionContext | undefined)
+      ?.targetDbFieldType;
+    const resultIsDatetime =
+      targetType === DbFieldType.DateTime || this.isDateLikeOperand(1) || this.isDateLikeOperand(2);
+    if (resultIsDatetime) {
+      const trueBranch = trueIsBlank ? 'NULL' : this.tzWrap(valueIfTrue, 1);
+      const falseBranch = falseIsBlank ? 'NULL' : this.tzWrap(valueIfFalse, 2);
+      return `CASE WHEN (${truthinessScore}) = 1 THEN ${trueBranch} ELSE ${falseBranch} END`;
+    }
     const trueIsText = this.isTextLikeExpression(valueIfTrue, 1);
     const falseIsText = this.isTextLikeExpression(valueIfFalse, 2);
     const trueIsHardText = this.isHardTextExpression(valueIfTrue);

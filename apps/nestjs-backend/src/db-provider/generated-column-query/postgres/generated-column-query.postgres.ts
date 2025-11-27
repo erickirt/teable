@@ -24,6 +24,10 @@ export class GeneratedColumnQueryPostgres extends GeneratedColumnQueryAbstract {
     return value.trim() === "''";
   }
 
+  private isNullLiteral(value: string): boolean {
+    return this.stripOuterParentheses(value).toUpperCase() === 'NULL';
+  }
+
   private hasWrappingParentheses(expr: string): boolean {
     if (!expr.startsWith('(') || !expr.endsWith(')')) {
       return false;
@@ -376,6 +380,9 @@ export class GeneratedColumnQueryPostgres extends GeneratedColumnQueryAbstract {
   private isDateLikeOperand(metadataIndex?: number): boolean {
     const paramInfo = metadataIndex != null ? this.getParamInfo(metadataIndex) : undefined;
     if (!paramInfo?.hasMetadata) {
+      return false;
+    }
+    if (paramInfo.type === 'number') {
       return false;
     }
     const looksDatetime =
@@ -1117,8 +1124,15 @@ export class GeneratedColumnQueryPostgres extends GeneratedColumnQueryAbstract {
   // Logical Functions
   if(condition: string, valueIfTrue: string, valueIfFalse: string): string {
     const booleanCondition = this.normalizeBooleanCondition(condition, 0);
-    const trueIsBlank = this.isEmptyStringLiteral(valueIfTrue);
-    const falseIsBlank = this.isEmptyStringLiteral(valueIfFalse);
+    const trueIsBlank = this.isEmptyStringLiteral(valueIfTrue) || this.isNullLiteral(valueIfTrue);
+    const falseIsBlank =
+      this.isEmptyStringLiteral(valueIfFalse) || this.isNullLiteral(valueIfFalse);
+    const resultIsDatetime = this.isDateLikeOperand(1) || this.isDateLikeOperand(2);
+    if (resultIsDatetime) {
+      const trueBranch = trueIsBlank ? 'NULL' : this.castToTimestamp(valueIfTrue, 1);
+      const falseBranch = falseIsBlank ? 'NULL' : this.castToTimestamp(valueIfFalse, 2);
+      return `CASE WHEN (${booleanCondition}) THEN ${trueBranch} ELSE ${falseBranch} END`;
+    }
     const trueIsText = this.isTextLikeExpression(valueIfTrue, 1);
     const falseIsText = this.isTextLikeExpression(valueIfFalse, 2);
     const trueIsHardText = this.isHardTextExpression(valueIfTrue);
@@ -1418,6 +1432,9 @@ export class GeneratedColumnQueryPostgres extends GeneratedColumnQueryAbstract {
     };
 
     const paramInfo = metadataIndex != null ? this.getParamInfo(metadataIndex) : undefined;
+    if (paramInfo?.hasMetadata && paramInfo.type === 'number') {
+      return 'NULL::timestamp';
+    }
     const looksDatetime =
       paramInfo?.hasMetadata &&
       (isDatetimeLikeParam(paramInfo) ||
