@@ -191,7 +191,9 @@ export class GeneratedColumnQuerySupportValidatorPostgres
   }
 
   dateAdd(_date: string, _count: string, _unit: string): boolean {
-    return true;
+    // DATE_ADD relies on timestamp input parsing which is not immutable in PostgreSQL
+    // (casts depend on DateStyle/TimeZone). Treat as unsupported for generated columns.
+    return false;
   }
 
   datestr(_date: string): boolean {
@@ -366,17 +368,17 @@ export class GeneratedColumnQuerySupportValidatorPostgres
     return false;
   }
 
-  arrayUnique(_array: string): boolean {
+  arrayUnique(_arrays: string[]): boolean {
     // Uses subqueries not allowed in generated columns
     return false;
   }
 
-  arrayFlatten(_array: string): boolean {
+  arrayFlatten(_arrays: string[]): boolean {
     // Uses subqueries not allowed in generated columns
     return false;
   }
 
-  arrayCompact(_array: string): boolean {
+  arrayCompact(_arrays: string[]): boolean {
     // Uses subqueries not allowed in generated columns
     return false;
   }

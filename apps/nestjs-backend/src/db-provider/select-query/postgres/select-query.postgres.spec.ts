@@ -15,6 +15,7 @@ import { createFieldInstanceByVo } from '../../../features/field/model/factory';
 import type { IFieldSelectName } from '../../../features/record/query-builder/field-select.type';
 import type { ISelectFormulaConversionContext } from '../../../features/record/query-builder/sql-conversion.visitor';
 import { PostgresProvider } from '../../postgres.provider';
+import { getDefaultDatetimeParsePattern } from '../../utils/default-datetime-parse-pattern';
 import { SelectQueryPostgres } from './select-query.postgres';
 
 describe('SelectQueryPostgres unit-aware date helpers', () => {
@@ -35,7 +36,8 @@ describe('SelectQueryPostgres unit-aware date helpers', () => {
 
   const sanitizeTimestampInput = (expr: string) => {
     const trimmed = `NULLIF(BTRIM((${expr})::text), '')`;
-    return `CASE WHEN ${trimmed} IS NULL THEN NULL WHEN LOWER(${trimmed}) IN ('null', 'undefined') THEN NULL ELSE ${trimmed} END`;
+    const pattern = getDefaultDatetimeParsePattern().replace(/'/g, "''");
+    return `CASE WHEN ${trimmed} IS NULL THEN NULL WHEN LOWER(${trimmed}) IN ('null', 'undefined') THEN NULL WHEN ${trimmed} ~ '${pattern}' THEN ${trimmed} ELSE NULL END`;
   };
   const tzWrap = (expr: string, timeZone: string) => {
     const safeTz = timeZone.replace(/'/g, "''");
@@ -71,6 +73,70 @@ describe('SelectQueryPostgres unit-aware date helpers', () => {
     expect(query.search('202', '"text_col"')).toBe(
       `POSITION(UPPER((202)::text) IN UPPER(("text_col")::text))`
     );
+  });
+
+  it('coerces non-text inputs to text for string functions', () => {
+    const numericMetadata: IFormulaParamMetadata[] = [
+      {
+        type: 'number',
+        isFieldReference: true,
+        field: {
+          id: 'fldNum',
+          dbFieldName: 'AutoNumber',
+          dbFieldType: DbFieldType.Integer,
+          isMultiple: false,
+        },
+      } as unknown as IFormulaParamMetadata,
+    ];
+    query.setCallMetadata(numericMetadata);
+
+    const lenSql = query.len('"AutoNumber"');
+    const lowerSql = query.lower('"AutoNumber"');
+    const upperSql = query.upper('"AutoNumber"');
+    const trimSql = query.trim('"AutoNumber"');
+    const reptSql = query.rept('"AutoNumber"', '3');
+
+    [lenSql, lowerSql, upperSql, trimSql, reptSql].forEach((sql) => {
+      expect(sql).toContain('::text');
+    });
+
+    query.setCallMetadata(undefined);
+  });
+
+  it('casts nested text IF chains without ballooning JSON coercions', () => {
+    const nestedIf = (depth: number): string => {
+      query.setCallMetadata([
+        { type: 'boolean', isFieldReference: false } as unknown as IFormulaParamMetadata,
+        { type: 'string', isFieldReference: false } as unknown as IFormulaParamMetadata,
+        { type: 'string', isFieldReference: false } as unknown as IFormulaParamMetadata,
+      ]);
+      const result =
+        depth === 0 ? `'leaf'` : query.if('1', `'branch_${depth}'`, nestedIf(depth - 1));
+      query.setCallMetadata(undefined);
+      return result;
+    };
+
+    const sql = nestedIf(8);
+
+    expect(sql).not.toContain('jsonb_typeof');
+    expect(sql).not.toContain('to_jsonb');
+    expect(sql.length).toBeLessThan(5000);
+  });
+
+  it('avoids regex coercion for unary minus numeric literals', () => {
+    query.setCallMetadata(undefined);
+    const sql = query.value(query.unaryMinus('7'));
+
+    expect(sql).not.toContain('REGEXP_REPLACE');
+  });
+
+  it('collates regex-based numeric coercion to avoid collation conflicts', () => {
+    query.setCallMetadata(undefined);
+    const sql = query.value('"text_col"');
+
+    expect(sql).toContain('REGEXP_REPLACE');
+    expect(sql).toContain('COLLATE "C"');
+    expect(sql).toContain('~ \'^[+-]{0,1}(\\d+(\\.\\d+){0,1}|\\.\\d+)$\' COLLATE "C"');
   });
 
   describe('timezone-aware wrappers', () => {
@@ -109,6 +175,24 @@ describe('SelectQueryPostgres unit-aware date helpers', () => {
 
     it('datetimeFormat formats timezone-normalized timestamp', () => {
       expect(tzQuery.datetimeFormat('date_col', `'%Y'`)).toBe(`TO_CHAR(${tz('date_col')}, '%Y')`);
+    });
+
+    it('datetimeFormat normalizes Airtable-style tokens before formatting', () => {
+      expect(tzQuery.datetimeFormat('date_col', `'YYYY-MM-DD HH:mm:ss'`)).toBe(
+        `TO_CHAR(${tz('date_col')}, 'YYYY-MM-DD HH24:MI:SS')`
+      );
+      expect(tzQuery.datetimeFormat('date_col', `'YYYY-MM-DD hh:mm A'`)).toBe(
+        `TO_CHAR(${tz('date_col')}, 'YYYY-MM-DD HH12:MI AM')`
+      );
+    });
+
+    it('datetimeFormat falls back to an ISO-like pattern when format is missing or blank', () => {
+      expect(tzQuery.datetimeFormat('date_col', undefined as unknown as string)).toBe(
+        `TO_CHAR(${tz('date_col')}, 'YYYY-MM-DD')`
+      );
+      expect(tzQuery.datetimeFormat('date_col', '   ')).toBe(
+        `TO_CHAR(${tz('date_col')}, 'YYYY-MM-DD')`
+      );
     });
 
     it('isAfter compares timezone-normalized expressions', () => {
@@ -282,14 +366,14 @@ describe('SelectQueryPostgres unit-aware date helpers', () => {
     it('sum rewrites multiple params to addition with numeric coercion', () => {
       const sql = query.sum(['column_a', 'column_b', '10']);
       expect(sql).toBe(
-        "(COALESCE(NULLIF(REGEXP_REPLACE(((column_a)::text), '[^0-9.+-]', '', 'g'), '')::double precision, 0) + COALESCE(NULLIF(REGEXP_REPLACE(((column_b)::text), '[^0-9.+-]', '', 'g'), '')::double precision, 0) + COALESCE((10)::double precision, 0))"
+        "(COALESCE((CASE WHEN NULLIF(REGEXP_REPLACE(((column_a)::text), '[^0-9.+-]', '', 'g'), '') IS NULL THEN NULL WHEN NULLIF(REGEXP_REPLACE(((column_a)::text), '[^0-9.+-]', '', 'g'), '') ~ '^[+-]{0,1}(\\d+(\\.\\d+){0,1}|\\.\\d+)$' THEN NULLIF(REGEXP_REPLACE(((column_a)::text), '[^0-9.+-]', '', 'g'), '')::double precision ELSE NULL END), 0) + COALESCE((CASE WHEN NULLIF(REGEXP_REPLACE(((column_b)::text), '[^0-9.+-]', '', 'g'), '') IS NULL THEN NULL WHEN NULLIF(REGEXP_REPLACE(((column_b)::text), '[^0-9.+-]', '', 'g'), '') ~ '^[+-]{0,1}(\\d+(\\.\\d+){0,1}|\\.\\d+)$' THEN NULLIF(REGEXP_REPLACE(((column_b)::text), '[^0-9.+-]', '', 'g'), '')::double precision ELSE NULL END), 0) + COALESCE((10)::double precision, 0))"
       );
     });
 
     it('average divides the rewritten sum by parameter count', () => {
       const sql = query.average(['column_a', '10']);
       expect(sql).toBe(
-        "((COALESCE(NULLIF(REGEXP_REPLACE(((column_a)::text), '[^0-9.+-]', '', 'g'), '')::double precision, 0) + COALESCE((10)::double precision, 0))) / 2"
+        "((COALESCE((CASE WHEN NULLIF(REGEXP_REPLACE(((column_a)::text), '[^0-9.+-]', '', 'g'), '') IS NULL THEN NULL WHEN NULLIF(REGEXP_REPLACE(((column_a)::text), '[^0-9.+-]', '', 'g'), '') ~ '^[+-]{0,1}(\\d+(\\.\\d+){0,1}|\\.\\d+)$' THEN NULLIF(REGEXP_REPLACE(((column_a)::text), '[^0-9.+-]', '', 'g'), '')::double precision ELSE NULL END), 0) + COALESCE((10)::double precision, 0))) / 2"
       );
     });
   });

@@ -1,4 +1,5 @@
 import type { ISelectFormulaConversionContext } from '../../../features/record/query-builder/sql-conversion.visitor';
+import { isTextLikeParam, resolveFormulaParamInfo } from '../../utils/formula-param-metadata.util';
 import { SelectQueryAbstract } from '../select-query.abstract';
 
 /**
@@ -11,6 +12,15 @@ export class SelectQuerySqlite extends SelectQueryAbstract {
   private get tableAlias(): string | undefined {
     const ctx = this.context as ISelectFormulaConversionContext | undefined;
     return ctx?.tableAlias;
+  }
+
+  private getParamInfo(index?: number) {
+    return resolveFormulaParamInfo(this.currentCallMetadata, index);
+  }
+
+  private isStringLiteral(value: string): boolean {
+    const trimmed = value.trim();
+    return /^'.*'$/.test(trimmed);
   }
 
   private qualifySystemColumn(column: string): string {
@@ -28,19 +38,26 @@ export class SelectQuerySqlite extends SelectQueryAbstract {
   }
 
   private buildBlankAwareComparison(operator: '=' | '<>', left: string, right: string): string {
-    const shouldNormalize = this.isEmptyStringLiteral(left) || this.isEmptyStringLiteral(right);
+    const leftIsEmptyLiteral = this.isEmptyStringLiteral(left);
+    const rightIsEmptyLiteral = this.isEmptyStringLiteral(right);
+    const leftInfo = this.getParamInfo(0);
+    const rightInfo = this.getParamInfo(1);
+    const shouldNormalize =
+      leftIsEmptyLiteral ||
+      rightIsEmptyLiteral ||
+      this.isStringLiteral(left) ||
+      this.isStringLiteral(right) ||
+      isTextLikeParam(leftInfo) ||
+      isTextLikeParam(rightInfo);
+
     if (!shouldNormalize) {
       return `(${left} ${operator} ${right})`;
     }
 
-    const normalizedLeft = this.isEmptyStringLiteral(left)
-      ? "''"
-      : this.normalizeBlankComparable(left);
-    const normalizedRight = this.isEmptyStringLiteral(right)
-      ? "''"
-      : this.normalizeBlankComparable(right);
+    const normalize = (value: string, isEmptyLiteral: boolean) =>
+      isEmptyLiteral ? "''" : this.normalizeBlankComparable(value);
 
-    return `(${normalizedLeft} ${operator} ${normalizedRight})`;
+    return `(${normalize(left, leftIsEmptyLiteral)} ${operator} ${normalize(right, rightIsEmptyLiteral)})`;
   }
 
   private coalesceNumeric(expr: string): string {
@@ -588,25 +605,72 @@ export class SelectQuerySqlite extends SelectQueryAbstract {
     return `COUNT(*)`;
   }
 
+  private buildJsonArrayUnion(
+    arrays: string[],
+    opts?: { filterNulls?: boolean; withOrdinal?: boolean }
+  ): string {
+    const selects = arrays.map((array, index) => {
+      const base = `SELECT value, ${index} AS arg_index, CAST(key AS INTEGER) AS ord FROM json_each(COALESCE(${array}, '[]'))`;
+      const whereClause = opts?.filterNulls
+        ? " WHERE value IS NOT NULL AND value != 'null' AND value != ''"
+        : '';
+      return `${base}${whereClause}`;
+    });
+
+    if (selects.length === 0) {
+      return 'SELECT NULL AS value, 0 AS arg_index, 0 AS ord WHERE 0';
+    }
+
+    return selects.join(' UNION ALL ');
+  }
+
   arrayJoin(array: string, separator?: string): string {
     const sep = separator || ',';
     // SQLite JSON array join using json_each with stable ordering by key
     return `(SELECT GROUP_CONCAT(value, ${sep}) FROM json_each(${array}) ORDER BY key)`;
   }
 
-  arrayUnique(array: string): string {
-    // SQLite JSON array unique using json_each and DISTINCT
-    return `'[' || (SELECT GROUP_CONCAT('"' || value || '"') FROM (SELECT DISTINCT value FROM json_each(${array}))) || ']'`;
+  arrayUnique(arrays: string[]): string {
+    const unionQuery = this.buildJsonArrayUnion(arrays, { withOrdinal: true, filterNulls: true });
+    return `COALESCE(
+      '[' || (
+        SELECT GROUP_CONCAT(json_quote(value))
+        FROM (
+          SELECT value, ROW_NUMBER() OVER (PARTITION BY value ORDER BY arg_index, ord) AS rn, arg_index, ord
+          FROM (${unionQuery}) AS combined
+        )
+        WHERE rn = 1
+        ORDER BY arg_index, ord
+      ) || ']',
+      '[]'
+    )`;
   }
 
-  arrayFlatten(array: string): string {
-    // For JSON arrays, just return the array (already flat)
-    return `${array}`;
+  arrayFlatten(arrays: string[]): string {
+    const unionQuery = this.buildJsonArrayUnion(arrays, { withOrdinal: true });
+    return `COALESCE(
+      '[' || (
+        SELECT GROUP_CONCAT(json_quote(value))
+        FROM (${unionQuery}) AS combined
+        ORDER BY arg_index, ord
+      ) || ']',
+      '[]'
+    )`;
   }
 
-  arrayCompact(array: string): string {
-    // Remove null values from JSON array
-    return `'[' || (SELECT GROUP_CONCAT('"' || value || '"') FROM json_each(${array}) WHERE value IS NOT NULL AND value != 'null') || ']'`;
+  arrayCompact(arrays: string[]): string {
+    const unionQuery = this.buildJsonArrayUnion(arrays, {
+      filterNulls: true,
+      withOrdinal: true,
+    });
+    return `COALESCE(
+      '[' || (
+        SELECT GROUP_CONCAT(json_quote(value))
+        FROM (${unionQuery}) AS combined
+        ORDER BY arg_index, ord
+      ) || ']',
+      '[]'
+    )`;
   }
 
   // System Functions

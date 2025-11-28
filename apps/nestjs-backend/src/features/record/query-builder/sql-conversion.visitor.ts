@@ -1,3 +1,4 @@
+/* eslint-disable regexp/no-unused-capturing-group */
 /* eslint-disable sonarjs/cognitive-complexity */
 /* eslint-disable regexp/no-dupe-characters-character-class */
 /* eslint-disable sonarjs/no-duplicated-branches */
@@ -87,6 +88,7 @@ const STRING_FUNCTIONS = new Set<FunctionName>([
   FunctionName.Substitute,
   FunctionName.Replace,
   FunctionName.T,
+  FunctionName.Blank,
   FunctionName.Datestr,
   FunctionName.Timestr,
   FunctionName.ArrayJoin,
@@ -392,7 +394,7 @@ abstract class BaseSqlConversionVisitor<
   visitFieldReferenceCurly(ctx: FieldReferenceCurlyContext): string {
     const normalizedFieldId = extractFieldReferenceId(ctx);
     const rawToken = getFieldReferenceTokenText(ctx);
-    const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1).trim() ?? '';
+    const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1)?.trim() ?? '';
 
     const fieldInfo = this.context.table.getField(fieldId);
     if (!fieldInfo) {
@@ -576,7 +578,11 @@ abstract class BaseSqlConversionVisitor<
 
           // Logical Functions
           .with(FunctionName.If, () => {
-            const [conditionSql, trueSql, falseSql] = params;
+            const [rawConditionSql, rawTrueSql, rawFalseSql] = params;
+            const conditionSql = rawConditionSql ?? 'NULL';
+            const trueSql = rawTrueSql ?? 'NULL';
+            const falseSql = rawFalseSql ?? 'NULL';
+
             let coercedTrue = trueSql;
             let coercedFalse = falseSql;
 
@@ -584,9 +590,16 @@ abstract class BaseSqlConversionVisitor<
             const falseExprCtx = exprContexts[2];
             const trueType = this.inferExpressionType(trueExprCtx);
             const falseType = this.inferExpressionType(falseExprCtx);
-            const trueIsBlank = this.isBlankLikeExpression(trueExprCtx) || trueSql.trim() === "''";
+            const trueSqlTrimmed = (rawTrueSql ?? '').trim();
+            const falseSqlTrimmed = (rawFalseSql ?? '').trim();
+            const trueIsBlank =
+              rawTrueSql == null ||
+              this.isBlankLikeExpression(trueExprCtx) ||
+              trueSqlTrimmed === "''";
             const falseIsBlank =
-              this.isBlankLikeExpression(falseExprCtx) || falseSql.trim() === "''";
+              rawFalseSql == null ||
+              this.isBlankLikeExpression(falseExprCtx) ||
+              falseSqlTrimmed === "''";
 
             const shouldNullOutTrueBranch = trueIsBlank && falseType !== 'string';
             const shouldNullOutFalseBranch = falseIsBlank && trueType !== 'string';
@@ -655,7 +668,8 @@ abstract class BaseSqlConversionVisitor<
               const requiresDatetime = hasDatetime;
 
               const shouldNullifyEntry = (entry: SwitchResultEntry): boolean => {
-                const isBlank = this.isBlankLikeExpression(entry.ctx) || entry.sql.trim() === "''";
+                const isBlank =
+                  this.isBlankLikeExpression(entry.ctx) || (entry.sql ?? '').trim() === "''";
 
                 if (!isBlank) {
                   return false;
@@ -738,9 +752,9 @@ abstract class BaseSqlConversionVisitor<
           .with(FunctionName.CountA, () => this.formulaQuery.countA(params))
           .with(FunctionName.CountAll, () => this.formulaQuery.countAll(params[0]))
           .with(FunctionName.ArrayJoin, () => this.formulaQuery.arrayJoin(params[0], params[1]))
-          .with(FunctionName.ArrayUnique, () => this.formulaQuery.arrayUnique(params[0]))
-          .with(FunctionName.ArrayFlatten, () => this.formulaQuery.arrayFlatten(params[0]))
-          .with(FunctionName.ArrayCompact, () => this.formulaQuery.arrayCompact(params[0]))
+          .with(FunctionName.ArrayUnique, () => this.formulaQuery.arrayUnique(params))
+          .with(FunctionName.ArrayFlatten, () => this.formulaQuery.arrayFlatten(params))
+          .with(FunctionName.ArrayCompact, () => this.formulaQuery.arrayCompact(params))
 
           // System Functions
           .with(FunctionName.RecordId, () => this.formulaQuery.recordId())
@@ -1034,7 +1048,7 @@ abstract class BaseSqlConversionVisitor<
     if (exprCtx instanceof FieldReferenceCurlyContext) {
       const normalizedFieldId = extractFieldReferenceId(exprCtx);
       const rawToken = getFieldReferenceTokenText(exprCtx);
-      const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1).trim() ?? '';
+      const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1)?.trim() ?? '';
       if (!fieldId) {
         return undefined;
       }
@@ -1308,7 +1322,7 @@ abstract class BaseSqlConversionVisitor<
     if (exprCtx instanceof FieldReferenceCurlyContext) {
       const normalizedFieldId = extractFieldReferenceId(exprCtx);
       const rawToken = getFieldReferenceTokenText(exprCtx);
-      const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1).trim() ?? '';
+      const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1)?.trim() ?? '';
       fieldInfo = this.context.table.getField(fieldId);
       const isMultiField = this.isMultiValueField(fieldInfo as FieldCore);
       if (
@@ -1402,6 +1416,13 @@ abstract class BaseSqlConversionVisitor<
       return '1';
     }
 
+    const trimmedLiteral = valueSql.trim();
+    if (/^[-+]?\d+(\.\d+)?$/.test(trimmedLiteral)) {
+      const literalNumber = Math.floor(Number(trimmedLiteral));
+      const clamped = Number.isFinite(literalNumber) ? Math.max(literalNumber, 0) : 0;
+      return clamped.toString();
+    }
+
     const type = this.inferExpressionType(exprCtx);
     const driver = this.context.driverClient ?? DriverClient.Pg;
 
@@ -1413,15 +1434,12 @@ abstract class BaseSqlConversionVisitor<
     }
 
     const numericExpr = this.safeCastToNumeric(valueSql);
-    const flooredExpr =
-      driver === DriverClient.Sqlite ? `CAST(${numericExpr} AS INTEGER)` : `FLOOR(${numericExpr})`;
-    const flooredWrapped = `(${flooredExpr})`;
-
-    return `(CASE
-      WHEN ${flooredWrapped} IS NULL THEN 0
-      WHEN ${flooredWrapped} < 0 THEN 0
-      ELSE ${flooredWrapped}
-    END)`;
+    if (driver === DriverClient.Sqlite) {
+      const flooredExpr = `CAST(${numericExpr} AS INTEGER)`;
+      return `COALESCE(CASE WHEN ${flooredExpr} < 0 THEN 0 ELSE ${flooredExpr} END, 0)`;
+    }
+    const flooredExpr = `FLOOR(${numericExpr})`;
+    return `COALESCE(GREATEST(${flooredExpr}, 0), 0)`;
   }
   private normalizeBooleanExpression(valueSql: string, exprCtx: ExprContext): string {
     const type = this.inferExpressionType(exprCtx);
@@ -1473,7 +1491,7 @@ abstract class BaseSqlConversionVisitor<
 
     const normalizedFieldId = extractFieldReferenceId(exprCtx);
     const rawToken = getFieldReferenceTokenText(exprCtx);
-    const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1).trim() ?? '';
+    const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1)?.trim() ?? '';
     const fieldInfo = this.context.table?.getField(fieldId);
     if (!fieldInfo) {
       return null;
@@ -1607,7 +1625,7 @@ abstract class BaseSqlConversionVisitor<
   } {
     const normalizedFieldId = extractFieldReferenceId(ctx);
     const rawToken = getFieldReferenceTokenText(ctx);
-    const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1).trim() ?? '';
+    const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1)?.trim() ?? '';
     const fieldInfo = this.context.table.getField(fieldId);
     return { fieldId, fieldInfo };
   }
@@ -1623,6 +1641,7 @@ abstract class BaseSqlConversionVisitor<
         cellValueType: fieldInfo?.cellValueType,
         isMultiple: Boolean(fieldInfo?.isMultipleCellValue),
         isLookup: Boolean(fieldInfo?.isLookup),
+        dbFieldName: fieldInfo?.dbFieldName,
         dbFieldType: fieldInfo?.dbFieldType,
       };
       return {
@@ -1743,8 +1762,16 @@ abstract class BaseSqlConversionVisitor<
 
     if (fnName === FunctionName.If) {
       const [, trueExpr, falseExpr] = ctx.expr();
-      const trueType = this.inferExpressionType(trueExpr);
-      const falseType = this.inferExpressionType(falseExpr);
+      const trueType = trueExpr ? this.inferExpressionType(trueExpr) : 'unknown';
+      const falseType = falseExpr ? this.inferExpressionType(falseExpr) : 'unknown';
+
+      if (!falseExpr) {
+        return trueType;
+      }
+
+      if (!trueExpr) {
+        return falseType;
+      }
 
       if (trueType === falseType) {
         return trueType;
@@ -1919,7 +1946,7 @@ export class GeneratedColumnSqlConversionVisitor extends BaseSqlConversionVisito
   visitFieldReferenceCurly(ctx: FieldReferenceCurlyContext): string {
     const normalizedFieldId = extractFieldReferenceId(ctx);
     const rawToken = getFieldReferenceTokenText(ctx);
-    const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1).trim() ?? '';
+    const fieldId = normalizedFieldId ?? rawToken?.slice(1, -1)?.trim() ?? '';
     this.dependencies.push(fieldId);
     return super.visitFieldReferenceCurly(ctx);
   }

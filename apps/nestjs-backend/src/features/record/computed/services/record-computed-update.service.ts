@@ -42,7 +42,12 @@ export class RecordComputedUpdateService {
         const hasError = (f as unknown as { hasError?: boolean }).hasError;
         const isLookupStyle = (f as unknown as { isLookup?: boolean }).isLookup === true;
         const isRollup = f.type === FieldType.Rollup || f.type === FieldType.ConditionalRollup;
-        if (hasError && !isLookupStyle && !isRollup) return false;
+        if (hasError && !isLookupStyle && !isRollup) {
+          // Only keep errored formulas in the updatable set when they are NOT persisted
+          // as generated columns (so we can null-out regular columns after dependency deletion).
+          if (f.type !== FieldType.Formula) return false;
+          if (isFormulaField(f) && f.getIsPersistedAsGeneratedColumn()) return false;
+        }
         // Persist lookup-of-link as well (computed link columns should be stored).
         // We rely on query builder to ensure subquery column types match target columns (e.g., jsonb).
         // Skip formula persisted as generated columns

@@ -435,9 +435,6 @@ class FieldCteSelectionVisitor implements IFieldVisitor<IFieldSelectName> {
     if (targetLookupField.type === FieldType.Link) {
       const nestedLinkFieldId = (targetLookupField as LinkFieldCore).id;
       const fieldCteMap = this.state.getFieldCteMap();
-      if (nestedLinkFieldId === this.currentLinkFieldId) {
-        return this.dialect.typedNullFor(field.dbFieldType);
-      }
       if (this.canReuseNestedCte(nestedLinkFieldId) && this.joinedCtes?.has(nestedLinkFieldId)) {
         const nestedCteName = fieldCteMap.get(nestedLinkFieldId)!;
         const linkExpr = `"${nestedCteName}"."link_value"`;
@@ -446,6 +443,9 @@ class FieldCteSelectionVisitor implements IFieldVisitor<IFieldSelectName> {
           : field.isMultipleCellValue
             ? this.getJsonAggregationFunction(linkExpr)
             : linkExpr;
+      }
+      if (nestedLinkFieldId === this.currentLinkFieldId) {
+        return `"${foreignAlias}"."${targetLookupField.dbFieldName}"`;
       }
       fallbackBlockedLinkIdForTarget = nestedLinkFieldId;
     }

@@ -80,10 +80,7 @@ describe('Formula metadata-aware coercion (e2e)', () => {
             AND table_name = ${rawTableName}
             AND column_name = ${doubleField.dbFieldName}`;
 
-        expect(rows[0]?.generation_expression).toBeTruthy();
-        const expression = rows[0]!.generation_expression!;
-        expect(expression).not.toContain('REGEXP_REPLACE');
-        expect(expression).toContain('::double precision');
+        expect(rows[0]?.generation_expression).toBeNull();
       } finally {
         await permanentDeleteTable(baseId, table.id);
       }
@@ -318,7 +315,7 @@ describe('Formula metadata-aware coercion (e2e)', () => {
 
         for (const { expression, expectedBranch } of branchAssertions) {
           const sql = dbProvider.convertFormulaToSelectQuery(expression, context);
-          expect(sql).toMatch(/THEN\s+NULL/i);
+          expect(sql).toMatch(/THEN\s+\(?NULL/i);
           expect(sql).not.toMatch(/THEN\s+''/i);
           expect(sql).toContain(expectedBranch);
         }

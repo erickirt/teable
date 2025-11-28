@@ -53,6 +53,52 @@ describe('GeneratedColumnQueryPostgres unit-aware helpers', () => {
     );
   });
 
+  it('coerces non-text inputs to text for string functions', () => {
+    const numericMetadata: IFormulaParamMetadata[] = [
+      {
+        type: 'number',
+        isFieldReference: true,
+        field: {
+          id: 'fldNum',
+          dbFieldName: 'AutoNumber',
+          dbFieldType: DbFieldType.Integer,
+          isMultiple: false,
+        },
+      } as unknown as IFormulaParamMetadata,
+    ];
+    query.setCallMetadata(numericMetadata);
+
+    const lenSql = query.len('"AutoNumber"');
+    const lowerSql = query.lower('"AutoNumber"');
+    const upperSql = query.upper('"AutoNumber"');
+    const trimSql = query.trim('"AutoNumber"');
+    const reptSql = query.rept('"AutoNumber"', '3');
+
+    [lenSql, lowerSql, upperSql, trimSql, reptSql].forEach((sql) => {
+      expect(sql).toContain('::text');
+    });
+  });
+
+  it('casts nested text IF chains without recursive JSON coercion', () => {
+    const nestedIf = (depth: number): string => {
+      query.setCallMetadata([
+        { type: 'boolean', isFieldReference: false } as unknown as IFormulaParamMetadata,
+        { type: 'string', isFieldReference: false } as unknown as IFormulaParamMetadata,
+        { type: 'string', isFieldReference: false } as unknown as IFormulaParamMetadata,
+      ]);
+      const result =
+        depth === 0 ? `'leaf'` : query.if('1', `'branch_${depth}'`, nestedIf(depth - 1));
+      query.setCallMetadata(undefined);
+      return result;
+    };
+
+    const sql = nestedIf(8);
+
+    expect(sql).not.toContain('jsonb_typeof');
+    expect(sql).not.toContain('to_jsonb');
+    expect(sql.length).toBeLessThan(5000);
+  });
+
   const dateAddCases: Array<{ literal: string; unit: string; factor: number }> = [
     { literal: 'millisecond', unit: 'millisecond', factor: 1 },
     { literal: 'milliseconds', unit: 'millisecond', factor: 1 },
@@ -89,6 +135,13 @@ describe('GeneratedColumnQueryPostgres unit-aware helpers', () => {
       expect(sql).toBe(`${castTs('date_col')} + (${scaled}) * INTERVAL '1 ${unit}'`);
     }
   );
+
+  it('dateAdd with numeric literal count avoids regex and remains immutable', () => {
+    const sql = query.dateAdd('"Chuang_Jian_Ri_Qi"', '-7', `'day'`);
+
+    expect(sql).toContain("INTERVAL '1 day'");
+    expect(sql).not.toContain('REGEXP_REPLACE');
+  });
 
   const diffSeconds = `(EXTRACT(EPOCH FROM ${castTs('date_start')} - ${castTs('date_end')}))`;
   const datetimeDiffCases: Array<{ literal: string; expected: string }> = [
@@ -298,5 +351,21 @@ describe('GeneratedColumnQueryPostgres unit-aware helpers', () => {
     query.setCallMetadata(undefined);
     const sql = query.if('"text_col"', "'yes'", "'no'");
     expect(sql).toContain('pg_typeof("text_col")::text');
+  });
+
+  it('avoids regex coercion for unary minus numeric literals', () => {
+    query.setCallMetadata(undefined);
+    const sql = query.value(query.unaryMinus('7'));
+
+    expect(sql).not.toContain('REGEXP_REPLACE');
+  });
+
+  it('collates regex-based numeric coercion to avoid collation conflicts', () => {
+    query.setCallMetadata(undefined);
+    const sql = query.value('"text_col"');
+
+    expect(sql).toContain('REGEXP_REPLACE');
+    expect(sql).toContain('COLLATE "C"');
+    expect(sql).toContain('~ \'^[+-]{0,1}(\\d+(\\.\\d+){0,1}|\\.\\d+)$\' COLLATE "C"');
   });
 });

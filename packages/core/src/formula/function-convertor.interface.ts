@@ -10,6 +10,7 @@ export interface IFormulaParamFieldMetadata {
   cellValueType?: string;
   isMultiple?: boolean;
   isLookup?: boolean;
+  dbFieldName?: string;
   dbFieldType?: DbFieldType;
 }
 
@@ -120,9 +121,9 @@ export interface ITeableToDbFunctionConverter<TReturn, TContext> {
   countA(params: string[]): TReturn;
   countAll(value: string): TReturn;
   arrayJoin(array: string, separator?: string): TReturn;
-  arrayUnique(array: string): TReturn;
-  arrayFlatten(array: string): TReturn;
-  arrayCompact(array: string): TReturn;
+  arrayUnique(arrays: string[]): TReturn;
+  arrayFlatten(arrays: string[]): TReturn;
+  arrayCompact(arrays: string[]): TReturn;
 
   // System Functions
   recordId(): TReturn;

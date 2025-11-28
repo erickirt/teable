@@ -136,9 +136,9 @@ export abstract class SelectQueryAbstract implements ISelectQueryInterface {
   abstract countA(params: string[]): string;
   abstract countAll(value: string): string;
   abstract arrayJoin(array: string, separator?: string): string;
-  abstract arrayUnique(array: string): string;
-  abstract arrayFlatten(array: string): string;
-  abstract arrayCompact(array: string): string;
+  abstract arrayUnique(arrays: string[]): string;
+  abstract arrayFlatten(arrays: string[]): string;
+  abstract arrayCompact(arrays: string[]): string;
 
   // System Functions
   abstract recordId(): string;

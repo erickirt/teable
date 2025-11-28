@@ -8,6 +8,7 @@ export interface IResolvedFormulaParamInfo {
   isFieldReference: boolean;
   isMultiValueField: boolean;
   isJsonField: boolean;
+  fieldDbName?: string;
   fieldDbType?: DbFieldType;
   fieldCellValueType?: string;
 }
@@ -18,6 +19,7 @@ const EMPTY_INFO: IResolvedFormulaParamInfo = {
   isFieldReference: false,
   isMultiValueField: false,
   isJsonField: false,
+  fieldDbName: undefined,
   fieldDbType: undefined,
   fieldCellValueType: undefined,
 };
@@ -42,6 +44,7 @@ export function resolveFormulaParamInfo(
     isFieldReference: Boolean(metadata.isFieldReference && field),
     isMultiValueField: Boolean(field?.isMultiple),
     isJsonField: field?.dbFieldType === DbFieldType.Json,
+    fieldDbName: field?.dbFieldName,
     fieldDbType: field?.dbFieldType,
     fieldCellValueType: field?.cellValueType,
   };
