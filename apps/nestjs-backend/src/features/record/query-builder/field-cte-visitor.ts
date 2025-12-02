@@ -1301,11 +1301,14 @@ export class FieldCteVisitor implements IFieldVisitor<ICteResult> {
     orderByClause?: string
   ): string {
     const fn = parseRollupFunctionName(rollupExpression);
+    const shouldFlattenNestedArray =
+      fn === 'array_compact' &&
+      ((targetField?.isMultipleCellValue ?? false) || (targetField?.isConditionalLookup ?? false));
     return this.dialect.rollupAggregate(fn, fieldExpression, {
       targetField,
       rowPresenceExpr: `"${foreignAlias}"."${ID_FIELD_NAME}"`,
       orderByField: orderByClause,
-      flattenNestedArray: fn === 'array_compact' && !!targetField.isConditionalLookup,
+      flattenNestedArray: shouldFlattenNestedArray,
     });
   }
 

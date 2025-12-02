@@ -2,8 +2,12 @@
 /* eslint-disable sonarjs/no-duplicate-string */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import type { INestApplication } from '@nestjs/common';
 import type {
+  IAttachmentCellValue,
   IConditionalRollupFieldOptions,
   IFieldRo,
   IFieldVo,
@@ -22,6 +26,7 @@ import {
   SortFunc,
 } from '@teable/core';
 import type { ITableFullVo } from '@teable/openapi';
+import { uploadAttachment } from '@teable/openapi';
 import {
   createField,
   convertField,
@@ -3391,6 +3396,170 @@ describe('OpenAPI Conditional Lookup field (e2e)', () => {
 
       expect(aliceSummary.fields[scoresWithoutExcludedField.id]).toEqual([12]);
       expect(bobSummary.fields[scoresWithoutExcludedField.id]).toEqual([7]);
+    });
+  });
+
+  describe('multi-value flattening', () => {
+    it('flattens attachment conditional lookup values before persisting', async () => {
+      let foreign: ITableFullVo | undefined;
+      let host: ITableFullVo | undefined;
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cl-attach-'));
+      const filePath = path.join(tempDir, 'conditional-lookup-attachment.txt');
+      fs.writeFileSync(filePath, 'conditional lookup attachment payload');
+      try {
+        foreign = await createTable(baseId, {
+          name: 'ConditionalLookup_Attachment_Foreign',
+          fields: [
+            { name: 'Title', type: FieldType.SingleLineText } as IFieldRo,
+            { name: 'Status', type: FieldType.SingleLineText } as IFieldRo,
+            { name: 'Files', type: FieldType.Attachment } as IFieldRo,
+          ],
+          records: [
+            { fields: { Title: 'Alpha', Status: 'Keep' } },
+            { fields: { Title: 'Beta', Status: 'Keep' } },
+            { fields: { Title: 'Gamma', Status: 'Skip' } },
+          ],
+        });
+        const titleId = foreign.fields.find((field) => field.name === 'Title')!.id;
+        const statusId = foreign.fields.find((field) => field.name === 'Status')!.id;
+        const filesFieldId = foreign.fields.find((field) => field.name === 'Files')!.id;
+
+        const uploadFile = async (recordId: string, filename: string) => {
+          const res = await uploadAttachment(
+            foreign!.id,
+            recordId,
+            filesFieldId,
+            fs.createReadStream(filePath),
+            { filename }
+          );
+          expect(res.status).toBe(201);
+        };
+        await uploadFile(foreign.records[0].id, 'alpha.txt');
+        await uploadFile(foreign.records[1].id, 'beta.txt');
+
+        host = await createTable(baseId, {
+          name: 'ConditionalLookup_Attachment_Host',
+          fields: [{ name: 'StatusFilter', type: FieldType.SingleLineText } as IFieldRo],
+          records: [{ fields: { StatusFilter: 'Keep' } }],
+        });
+        const statusFilterId = host.fields.find((field) => field.name === 'StatusFilter')!.id;
+
+        const statusMatchFilter: IFilter = {
+          conjunction: 'and',
+          filterSet: [
+            {
+              fieldId: statusId,
+              operator: 'is',
+              value: { type: 'field', fieldId: statusFilterId },
+            },
+          ],
+        };
+
+        const lookupField = await createField(host.id, {
+          name: 'Matched Files',
+          type: FieldType.Attachment,
+          isLookup: true,
+          isConditionalLookup: true,
+          lookupOptions: {
+            foreignTableId: foreign.id,
+            lookupFieldId: filesFieldId,
+            filter: statusMatchFilter,
+            sort: { fieldId: titleId, order: SortFunc.Asc },
+          } as ILookupOptionsRo,
+          options: {},
+        } as IFieldRo);
+
+        const record = await getRecord(host.id, host.records[0].id);
+        const attachments = record.fields[lookupField.id] as IAttachmentCellValue;
+        expect(Array.isArray(attachments)).toBe(true);
+        expect(attachments).toHaveLength(2);
+        expect(attachments.some((item) => Array.isArray(item))).toBe(false);
+        expect(attachments.map((item) => item.name)).toEqual(['alpha.txt', 'beta.txt']);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        if (host) {
+          await permanentDeleteTable(baseId, host.id);
+        }
+        if (foreign) {
+          await permanentDeleteTable(baseId, foreign.id);
+        }
+      }
+    });
+
+    it('flattens multi-select conditional lookup values before persisting', async () => {
+      let foreign: ITableFullVo | undefined;
+      let host: ITableFullVo | undefined;
+      const tagChoices = [
+        { id: 'tag-red', name: 'Red', color: Colors.Red },
+        { id: 'tag-blue', name: 'Blue', color: Colors.Blue },
+        { id: 'tag-green', name: 'Green', color: Colors.Green },
+      ];
+      try {
+        foreign = await createTable(baseId, {
+          name: 'ConditionalLookup_MultiSelect_Foreign',
+          fields: [
+            { name: 'Title', type: FieldType.SingleLineText } as IFieldRo,
+            { name: 'Bucket', type: FieldType.SingleLineText } as IFieldRo,
+            {
+              name: 'Tags',
+              type: FieldType.MultipleSelect,
+              options: { choices: tagChoices },
+            } as IFieldRo,
+          ],
+          records: [
+            { fields: { Title: 'Red Row', Bucket: 'A', Tags: ['Red'] } },
+            { fields: { Title: 'Blue Row', Bucket: 'A', Tags: ['Blue'] } },
+            { fields: { Title: 'Green Row', Bucket: 'B', Tags: ['Green'] } },
+          ],
+        });
+
+        const titleFieldId = foreign.fields.find((field) => field.name === 'Title')!.id;
+        const bucketFieldId = foreign.fields.find((field) => field.name === 'Bucket')!.id;
+        const tagsFieldId = foreign.fields.find((field) => field.name === 'Tags')!.id;
+
+        host = await createTable(baseId, {
+          name: 'ConditionalLookup_MultiSelect_Host',
+          fields: [{ name: 'BucketFilter', type: FieldType.SingleLineText } as IFieldRo],
+          records: [{ fields: { BucketFilter: 'A' } }],
+        });
+        const bucketFilterId = host.fields.find((field) => field.name === 'BucketFilter')!.id;
+
+        const lookupField = await createField(host.id, {
+          name: 'Filtered Tags',
+          type: FieldType.MultipleSelect,
+          isLookup: true,
+          isConditionalLookup: true,
+          lookupOptions: {
+            foreignTableId: foreign.id,
+            lookupFieldId: tagsFieldId,
+            filter: {
+              conjunction: 'and',
+              filterSet: [
+                {
+                  fieldId: bucketFieldId,
+                  operator: 'is',
+                  value: { type: 'field', fieldId: bucketFilterId },
+                },
+              ],
+            },
+            sort: { fieldId: titleFieldId, order: SortFunc.Asc },
+          } as ILookupOptionsRo,
+          options: { choices: tagChoices },
+        } as IFieldRo);
+
+        const hostRecord = await getRecord(host.id, host.records[0].id);
+        const tags = hostRecord.fields[lookupField.id] as string[];
+        expect(Array.isArray(tags)).toBe(true);
+        expect(tags.every((tag) => typeof tag === 'string')).toBe(true);
+        expect(tags).toEqual(['Blue', 'Red']);
+      } finally {
+        if (host) {
+          await permanentDeleteTable(baseId, host.id);
+        }
+        if (foreign) {
+          await permanentDeleteTable(baseId, foreign.id);
+        }
+      }
     });
   });
 
