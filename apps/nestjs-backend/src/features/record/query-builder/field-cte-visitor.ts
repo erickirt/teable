@@ -1822,6 +1822,26 @@ export class FieldCteVisitor implements IFieldVisitor<ICteResult> {
       if (!targetField) {
         return;
       }
+
+      const requiredLinkFields = new Map<string, LinkFieldCore>();
+
+      const ensureLinkDependencies = (candidate?: FieldCore) => {
+        if (!candidate) return;
+        if (candidate.type === FieldType.Link) {
+          const linkField = candidate as LinkFieldCore;
+          requiredLinkFields.set(linkField.id, linkField);
+          if (!this.state.getFieldCteMap().has(linkField.id)) {
+            this.generateLinkFieldCteForTable(foreignTable, linkField);
+          }
+        }
+        for (const linkField of candidate.getLinkFields(foreignTable)) {
+          if (!linkField) continue;
+          requiredLinkFields.set(linkField.id, linkField as LinkFieldCore);
+          if (this.state.getFieldCteMap().has(linkField.id)) continue;
+          this.generateLinkFieldCteForTable(foreignTable, linkField as LinkFieldCore);
+        }
+      };
+      ensureLinkDependencies(targetField);
       const preferMaterializedCte = this.dbProvider.driver === DriverClient.Pg;
 
       const joinToMain = table === this.table;
@@ -1845,10 +1865,31 @@ export class FieldCteVisitor implements IFieldVisitor<ICteResult> {
         selectVisitor
       );
 
+      const joinLinkDependencies = (qb: Knex.QueryBuilder) => {
+        for (const linkField of requiredLinkFields.values()) {
+          const cteName = this.getCteNameForField(linkField.id);
+          if (!cteName) continue;
+          qb.leftJoin(cteName, `${foreignAliasUsed}.${ID_FIELD_NAME}`, `${cteName}.main_record_id`);
+        }
+      };
+
+      const aggregateBase = this.qb.client
+        .queryBuilder()
+        .select('*')
+        .from(`${foreignTable.dbTableName} as ${foreignAliasUsed}`);
+
+      joinLinkDependencies(aggregateBase);
+
+      const targetValueAlias = `__cl_target_${field.id}`;
+      aggregateBase.select(this.qb.client.raw(`${rawExpression} as "${targetValueAlias}"`));
+      const projectedTargetExpr = `"${foreignAliasUsed}"."${targetValueAlias}"`;
+
       let orderByClause: string | undefined;
       if (sort?.fieldId) {
         const sortField = foreignTable.getField(sort.fieldId);
         if (sortField) {
+          ensureLinkDependencies(sortField);
+
           let sortExpression = this.resolveConditionalComputedTargetExpression(
             sortField,
             foreignTable,
@@ -1865,20 +1906,22 @@ export class FieldCteVisitor implements IFieldVisitor<ICteResult> {
           }
 
           const direction = sort.order === SortFunc.Desc ? 'DESC' : 'ASC';
-          orderByClause = `${sortExpression} ${direction}`;
+          const sortAlias = `__cl_sort_${sort.fieldId}_${field.id}`;
+          aggregateBase.select(this.qb.client.raw(`${sortExpression} as "${sortAlias}"`));
+          orderByClause = `"${foreignAliasUsed}"."${sortAlias}" ${direction}`;
         }
       }
 
       const aggregateExpressionInfo =
         field.type === FieldType.ConditionalRollup
           ? {
-              expression: this.dialect.jsonAggregateNonNull(rawExpression, orderByClause),
+              expression: this.dialect.jsonAggregateNonNull(projectedTargetExpr, orderByClause),
               isJsonAggregate: true,
             }
           : (() => {
               const expression = this.buildConditionalRollupAggregation(
                 'array_compact({values})',
-                rawExpression,
+                projectedTargetExpr,
                 targetField,
                 foreignAliasUsed,
                 orderByClause
@@ -1961,11 +2004,7 @@ export class FieldCteVisitor implements IFieldVisitor<ICteResult> {
           ? `ROW_NUMBER() OVER (${windowClause})`
           : 'ROW_NUMBER() OVER ()';
 
-        const rankedSourceQuery = this.qb.client
-          .queryBuilder()
-          .select('*')
-          .from(`${foreignTable.dbTableName} as ${foreignAliasUsed}`);
-
+        const rankedSourceQuery = aggregateBase.clone();
         applyConditionalFilter(rankedSourceQuery, equalityPlan.residualFilter);
 
         const rankedWithWindow = this.qb.client
@@ -2027,11 +2066,7 @@ export class FieldCteVisitor implements IFieldVisitor<ICteResult> {
         return;
       }
 
-      const aggregateSourceQuery = this.qb.client
-        .queryBuilder()
-        .select('*')
-        .from(`${foreignTable.dbTableName} as ${foreignAliasUsed}`);
-
+      const aggregateSourceQuery = aggregateBase.clone();
       applyConditionalFilter(aggregateSourceQuery);
 
       if (orderByClause) {
