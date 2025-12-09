@@ -282,7 +282,8 @@
     "credits": "Credits",
     "aiChat": "AI Chat",
     "app": "App",
-    "webSearch": "Web search"
+    "webSearch": "Web search",
+    "folder": "Folder"
   },
   "level": {
     "free": "Free",
@@ -650,7 +651,7 @@
     "fromSpace": "From \"{{name}}\" space",
     "permanentDeleteTips": "Are you sure you want to permanently delete \"{{name}}\" {{resource}}?",
     "resetTrashConfirm": "Are you sure you want to empty the trash?",
-    "addToTrash": "Add to Trash",
+    "addToTrash": "Move to Trash",
     "description": "Data in the trash still occupies record usage and attachment usage."
   },
   "pluginCenter": {

@@ -456,6 +456,7 @@ export type I18nTranslations = {
             "dashboard": string;
             "automation": string;
             "authorityMatrix": string;
+            "design": string;
             "adminPanel": string;
             "license": string;
             "instanceId": string;
@@ -464,7 +465,6 @@ export type I18nTranslations = {
             "global": string;
             "organizationPanel": string;
             "unknownError": string;
-            "design": string;
             "pluginPanel": string;
             "pluginContextMenu": string;
             "plugin": string;
@@ -473,7 +473,7 @@ export type I18nTranslations = {
             "aiChat": string;
             "app": string;
             "webSearch": string;
-            "float": string;
+            "folder": string;
         };
         "level": {
             "free": string;
@@ -1055,6 +1055,10 @@ export type I18nTranslations = {
         };
         "findDashboard": string;
         "expand": string;
+        "deprecation": {
+            "title": string;
+            "description": string;
+        };
         "pluginUrlEmpty": string;
         "install": string;
         "publisher": string;
@@ -2218,6 +2222,26 @@ export type I18nTranslations = {
                 "anchorNotFound": string;
                 "baseAndSpaceMismatch": string;
                 "templateNotFound": string;
+            };
+            "baseNode": {
+                "baseIdIsRequired": string;
+                "nodeIdIsRequired": string;
+                "invalidResourceType": string;
+                "notFound": string;
+                "parentMustBeFolder": string;
+                "cannotDuplicateFolder": string;
+                "cannotDeleteEmptyFolder": string;
+                "onlyOneOfParentIdOrAnchorIdRequired": string;
+                "cannotMoveToItself": string;
+                "cannotMoveToCircularReference": string;
+                "anchorIdOrParentIdRequired": string;
+                "parentNotFound": string;
+                "parentIsNotFolder": string;
+                "circularReference": string;
+                "folderDepthLimitExceeded": string;
+                "folderNotFound": string;
+                "anchorNotFound": string;
+                "nameAlreadyExists": string;
             };
             "dashboard": {
                 "notFound": string;

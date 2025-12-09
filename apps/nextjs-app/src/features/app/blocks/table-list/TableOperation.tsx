@@ -11,7 +11,7 @@ import {
   FileExcel,
   Copy,
 } from '@teable/icons';
-import { duplicateTable, PinType, SUPPORTEDTYPE } from '@teable/openapi';
+import { duplicateTable, SUPPORTEDTYPE } from '@teable/openapi';
 import { ReactQueryKeys } from '@teable/sdk/config';
 import { useBase, useBasePermission, useTables } from '@teable/sdk/hooks';
 import type { Table } from '@teable/sdk/model';
@@ -38,7 +38,6 @@ import React, { useMemo, useState } from 'react';
 import { tableConfig } from '@/features/i18n/table.config';
 import { useDownload } from '../../hooks/useDownLoad';
 import { TableImport } from '../import-table';
-import { StarButton } from '../space/space-side-bar/StarButton';
 
 interface ITableOperationProps {
   className?: string;
@@ -135,9 +134,7 @@ export const TableOperation = (props: ITableOperationProps) => {
   }
 
   return (
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-    <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}>
-      <StarButton id={table.id} type={PinType.Table} className="size-3.5" />
+    <>
       <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger asChild>
           <div>
@@ -245,9 +242,6 @@ export const TableOperation = (props: ITableOperationProps) => {
               <Button size={'sm'} variant={'ghost'} onClick={() => setDeleteConfirm(false)}>
                 {t('common:actions.cancel')}
               </Button>
-              <Button variant="destructive" size={'sm'} onClick={() => deleteTable(true)}>
-                {t('common:actions.permanentDelete')}
-              </Button>
               <Button size={'sm'} onClick={() => deleteTable()}>
                 {t('common:trash.addToTrash')}
               </Button>
@@ -295,6 +289,6 @@ export const TableOperation = (props: ITableOperationProps) => {
           duplicateTableFn();
         }}
       />
-    </div>
+    </>
   );
 };

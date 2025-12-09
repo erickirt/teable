@@ -1,6 +1,7 @@
 import type { RouteConfig } from '@asteasolutions/zod-to-openapi';
 import { fieldVoSchema, IdPrefix, viewVoSchema } from '@teable/core';
 import { axios } from '../axios';
+import { BaseNodeResourceType } from '../base-node/types';
 import { pluginInstallStorageSchema } from '../dashboard';
 import { PluginPosition } from '../plugin';
 import { registerRoute, urlBuilder } from '../utils';
@@ -142,6 +143,19 @@ export const viewPluginJsonSchema = viewJsonSchema.extend({
   }),
 });
 
+export const folderJsonSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
+
+export const nodeJsonSchema = z.object({
+  id: z.string(),
+  parentId: z.string().nullable(),
+  resourceId: z.string(),
+  resourceType: z.enum(BaseNodeResourceType),
+  order: z.number(),
+});
+
 export const pluginJsonSchema = z.object({
   [PluginPosition.Dashboard]: dashboardJsonSchema.array(),
   [PluginPosition.Panel]: pluginPanelJsonSchema.array(),
@@ -152,6 +166,8 @@ export const BaseJsonSchema = z.object({
   name: z.string(),
   icon: z.string().nullable(),
   tables: tableJsonSchema.array(),
+  folders: folderJsonSchema.array(),
+  nodes: nodeJsonSchema.array(),
   plugins: pluginJsonSchema,
   version: z.string(),
 });

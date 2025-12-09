@@ -11,6 +11,10 @@ export enum Events {
   // BASE_CLONE = 'base.clone',
   // BASE_MOVE = 'base.move',
 
+  BASE_NODE_CREATE = 'base.node.create',
+  BASE_NODE_DELETE = 'base.node.delete',
+  BASE_NODE_UPDATE = 'base.node.update',
+
   TABLE_CREATE = 'table.create',
   TABLE_DELETE = 'table.delete',
   TABLE_UPDATE = 'table.update',
@@ -62,8 +66,23 @@ export enum Events {
   COLLABORATOR_CREATE = 'collaborator.create',
   COLLABORATOR_DELETE = 'collaborator.delete',
 
+  BASE_FOLDER_CREATE = 'base.folder.create',
+  BASE_FOLDER_DELETE = 'base.folder.delete',
+  BASE_FOLDER_UPDATE = 'base.folder.update',
+
+  DASHBOARD_CREATE = 'dashboard.create',
+  DASHBOARD_DELETE = 'dashboard.delete',
+  DASHBOARD_UPDATE = 'dashboard.update',
+
+  WORKFLOW_CREATE = 'workflow.create',
+  WORKFLOW_DELETE = 'workflow.delete',
+  WORKFLOW_UPDATE = 'workflow.update',
   WORKFLOW_ACTIVATE = 'workflow.activate',
   WORKFLOW_DEACTIVATE = 'workflow.deactivate',
+
+  APP_CREATE = 'app.create',
+  APP_DELETE = 'app.delete',
+  APP_UPDATE = 'app.update',
 
   CROP_IMAGE = 'crop.image',
   CROP_IMAGE_COMPLETE = 'crop.image.complete',

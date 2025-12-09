@@ -1,13 +1,13 @@
 import { dehydrate, QueryClient } from '@tanstack/react-query';
-import { LastVisitResourceType, type ITableVo } from '@teable/openapi';
 import { ReactQueryKeys } from '@teable/sdk/config';
 import type { GetServerSideProps } from 'next';
 import type { ReactElement } from 'react';
 import { CommunityPage } from '@/features/app/base/CommunityPage';
+import { getNodeUrl } from '@/features/app/blocks/base/base-node/hooks/helper';
 import { BaseLayout } from '@/features/app/layouts/BaseLayout';
 import ensureLogin from '@/lib/ensureLogin';
 import { getTranslationsProps } from '@/lib/i18n';
-import type { NextPageWithLayout } from '@/lib/type';
+import type { IBasePageProps, NextPageWithLayout } from '@/lib/type';
 import withAuthSSR from '@/lib/withAuthSSR';
 import withEnv from '@/lib/withEnv';
 
@@ -19,28 +19,26 @@ export const getServerSideProps: GetServerSideProps = withEnv(
   ensureLogin(
     withAuthSSR(async (context, ssrApi) => {
       const { baseId } = context.query;
-      const [userLastVisit, tables] = await Promise.all([
-        ssrApi.getUserLastVisit(LastVisitResourceType.Table, baseId as string),
-        ssrApi.getTables(baseId as string),
+      const [userLastVisitNode, nodes] = await Promise.all([
+        ssrApi.getUserLastVisitBaseNode({ parentResourceId: baseId as string }),
+        ssrApi.getBaseNodeList(baseId as string),
       ]);
 
-      if (tables.length && userLastVisit && userLastVisit.childResourceId) {
-        // if userLastVisit.resourceId has no permission to the tables, redirect to the first table
-        if (tables.find((table) => table.id === userLastVisit.resourceId)) {
+      const findNode = nodes.find((node) => node.resourceId === userLastVisitNode?.resourceId);
+      if (findNode) {
+        const url = getNodeUrl({
+          baseId: baseId as string,
+          resourceType: findNode.resourceType,
+          resourceId: findNode.resourceId,
+        });
+        if (url && url.pathname) {
           return {
             redirect: {
-              destination: `/base/${baseId}/${userLastVisit.resourceId}/${userLastVisit.childResourceId}`,
+              destination: url.pathname,
               permanent: false,
             },
           };
         }
-
-        return {
-          redirect: {
-            destination: `/base/${baseId}/${tables[0].id}/${tables[0].defaultViewId}`,
-            permanent: false,
-          },
-        };
       }
 
       const queryClient = new QueryClient();
@@ -60,7 +58,6 @@ export const getServerSideProps: GetServerSideProps = withEnv(
 
       return {
         props: {
-          tableServerData: tables,
           dehydratedState: dehydrate(queryClient),
           ...(await getTranslationsProps(context, ['common', 'sdk', 'table'])),
         },
@@ -69,10 +66,7 @@ export const getServerSideProps: GetServerSideProps = withEnv(
   )
 );
 
-Node.getLayout = function getLayout(
-  page: ReactElement,
-  pageProps: { tableServerData: ITableVo[] }
-) {
+Node.getLayout = function getLayout(page: ReactElement, pageProps: IBasePageProps) {
   return <BaseLayout {...pageProps}>{page}</BaseLayout>;
 };
 
