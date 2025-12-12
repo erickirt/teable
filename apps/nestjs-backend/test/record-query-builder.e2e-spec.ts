@@ -243,6 +243,59 @@ describe('RecordQueryBuilder (e2e)', () => {
     }
   });
 
+  it('does not leak unbound placeholders from conditional rollup CTEs', async () => {
+    const foreignTable = await createTable(baseId, {
+      name: 'rqb_cond_rollup_src',
+      fields: [
+        { name: 'Label', type: FT.SingleLineText } as IFieldRo,
+        { name: 'Amount', type: FT.SingleLineText } as IFieldRo,
+      ],
+    });
+
+    let linkField: IFieldVo | undefined;
+    let conditionalRollup: IFieldVo | undefined;
+
+    try {
+      linkField = await createField(table.id, {
+        name: 'Cond Rollup Link',
+        type: FT.Link,
+        options: {
+          relationship: Relationship.OneMany,
+          foreignTableId: foreignTable.id,
+        },
+      } as IFieldRo);
+
+      const amountFieldId = foreignTable.fields.find((f) => f.name === 'Amount')!.id;
+
+      conditionalRollup = (await createField(table.id, {
+        name: 'Cond Rollup Array Join',
+        type: FT.ConditionalRollup,
+        options: {
+          foreignTableId: foreignTable.id,
+          lookupFieldId: amountFieldId,
+          expression: 'array_join({values})',
+        },
+      } as IFieldRo)) as IFieldVo;
+
+      const { qb, alias } = await rqb.createRecordQueryBuilder(dbTableName, {
+        tableId: table.id,
+        projection: [conditionalRollup.id],
+      });
+      qb.from({ [alias]: 'db_table' });
+
+      const sql = qb.limit(1).toQuery();
+      expect(sql).not.toMatch(/limit\\s+\\?/i);
+    } finally {
+      if (conditionalRollup) {
+        await deleteField(table.id, conditionalRollup.id);
+      }
+      if (linkField) {
+        await deleteField(table.id, linkField.id);
+      }
+      await permanentDeleteTable(baseId, foreignTable.id);
+    }
+  });
+
   it('left joins link CTEs even when dependencies pre-generate them', async () => {
     const selfLink = await createField(table.id, {
       name: 'Self Link',
