@@ -1857,6 +1857,110 @@ IF(
       await permanentDeleteTable(baseId, foreign.id);
     });
 
+    it('evaluates equality filter comparing link titles to host text', async () => {
+      const tags = await createTable(baseId, {
+        name: 'RefLookup_LinkTitle_Tags',
+        fields: [{ name: 'Name', type: FieldType.SingleLineText } as IFieldRo],
+        records: [{ fields: { Name: 'TagA' } }, { fields: { Name: 'TagB' } }],
+      });
+      const tagARecordId = tags.records.find((r) => r.fields.Name === 'TagA')!.id;
+      const tagBRecordId = tags.records.find((r) => r.fields.Name === 'TagB')!.id;
+
+      const foreign = await createTable(baseId, {
+        name: 'RefLookup_LinkTitle_Foreign',
+        fields: [
+          { name: 'Title', type: FieldType.SingleLineText } as IFieldRo,
+          {
+            name: 'Tags',
+            type: FieldType.Link,
+            options: {
+              relationship: Relationship.ManyMany,
+              foreignTableId: tags.id,
+            } as ILinkFieldOptions,
+          } as IFieldRo,
+          { name: 'Amount', type: FieldType.Number } as IFieldRo,
+        ],
+        records: [
+          { fields: { Title: 'r1', Amount: 10 } },
+          { fields: { Title: 'r2', Amount: 20 } },
+          { fields: { Title: 'r3', Amount: 5 } },
+        ],
+      });
+      const foreignTagsId = foreign.fields.find((f) => f.name === 'Tags')!.id;
+      const foreignAmountId = foreign.fields.find((f) => f.name === 'Amount')!.id;
+
+      await updateRecordByApi(foreign.id, foreign.records[0].id, foreignTagsId, [
+        { id: tagARecordId },
+      ]);
+      await updateRecordByApi(foreign.id, foreign.records[1].id, foreignTagsId, [
+        { id: tagBRecordId },
+      ]);
+      await updateRecordByApi(foreign.id, foreign.records[2].id, foreignTagsId, [
+        { id: tagARecordId },
+        { id: tagBRecordId },
+      ]);
+
+      const host = await createTable(baseId, {
+        name: 'RefLookup_LinkTitle_Host',
+        fields: [{ name: 'TagName', type: FieldType.SingleLineText } as IFieldRo],
+        records: [
+          { fields: { TagName: 'TagA' } },
+          { fields: { TagName: 'TagB' } },
+          { fields: { TagName: 'TagC' } },
+        ],
+      });
+      const hostTagNameId = host.fields.find((f) => f.name === 'TagName')!.id;
+      const hostAId = host.records[0].id;
+      const hostBId = host.records[1].id;
+      const hostCId = host.records[2].id;
+
+      const { result: rollupField, events: creationEvents } = await runAndCaptureRecordUpdates(
+        async () => {
+          return await createField(host.id, {
+            name: 'Sum By Tag Title',
+            type: FieldType.ConditionalRollup,
+            options: {
+              foreignTableId: foreign.id,
+              lookupFieldId: foreignAmountId,
+              expression: 'sum({values})',
+              filter: {
+                conjunction: 'and',
+                filterSet: [
+                  {
+                    fieldId: foreignTagsId,
+                    operator: FilterOperatorIs.value,
+                    value: { type: 'field', fieldId: hostTagNameId },
+                  },
+                ],
+              },
+            },
+          } as IFieldRo);
+        }
+      );
+
+      const createAChange = findRecordChangeMap(creationEvents, host.id, hostAId);
+      expect(createAChange).toBeDefined();
+      expect(createAChange?.[rollupField.id]?.newValue).toEqual(15);
+
+      const createBChange = findRecordChangeMap(creationEvents, host.id, hostBId);
+      expect(createBChange).toBeDefined();
+      expect(createBChange?.[rollupField.id]?.newValue).toEqual(25);
+
+      const createCChange = findRecordChangeMap(creationEvents, host.id, hostCId);
+      expect(createCChange).toBeDefined();
+      expect(createCChange?.[rollupField.id]?.newValue).toEqual(0);
+
+      const hostDbTable = await getDbTableName(host.id);
+      const hostFieldVo = (await getFields(host.id)).find((f) => f.id === rollupField.id)! as any;
+      expect(parseMaybe((await getRow(hostDbTable, hostAId))[hostFieldVo.dbFieldName])).toEqual(15);
+      expect(parseMaybe((await getRow(hostDbTable, hostBId))[hostFieldVo.dbFieldName])).toEqual(25);
+      expect(parseMaybe((await getRow(hostDbTable, hostCId))[hostFieldVo.dbFieldName])).toEqual(0);
+
+      await permanentDeleteTable(baseId, host.id);
+      await permanentDeleteTable(baseId, foreign.id);
+      await permanentDeleteTable(baseId, tags.id);
+    });
+
     it('marks hasError when referenced lookup or filter fields are removed', async () => {
       const foreign = await createTable(baseId, {
         name: 'RefLookup_Dependency_Foreign',

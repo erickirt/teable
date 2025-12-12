@@ -1,3 +1,4 @@
+/* eslint-disable sonarjs/no-collapsible-if */
 /* eslint-disable sonarjs/no-identical-functions */
 /* eslint-disable sonarjs/cognitive-complexity */
 /* eslint-disable sonarjs/no-duplicated-branches */
@@ -1472,6 +1473,31 @@ export class FieldCteVisitor implements IFieldVisitor<ICteResult> {
         return { hostExpr: `LOWER(${hostRef})`, foreignExpr: `LOWER(${foreignRef})` };
       }
       return { hostExpr: hostRef, foreignExpr: foreignRef };
+    }
+
+    // Link-title equality against text fields (Postgres only).
+    // When comparing a link field to a text field with "is" in conditional rollups,
+    // match on linked record titles instead of the raw JSON payload. For multi-link
+    // foreign fields, jsonb_path_query expands each title, so any matching title
+    // satisfies the equality join.
+    if (this.dbProvider.driver === DriverClient.Pg) {
+      if (isTextHost && isJsonForeign && foreignField.type === FieldType.Link) {
+        const path = foreignField.isMultipleCellValue ? '$[*].title' : '$.title';
+        const hostExpr = `LOWER(${hostRef})`;
+        const foreignExpr = `LOWER(jsonb_path_query(${foreignRef}::jsonb, '${path}') #>> '{}')`;
+        return { hostExpr, foreignExpr };
+      }
+
+      if (isJsonHost && isTextForeign && hostField.type === FieldType.Link) {
+        if (!hostField.isMultipleCellValue) {
+          const path = '$.title';
+          const hostExpr = `LOWER(jsonb_path_query(${hostRef}::jsonb, '${path}') #>> '{}')`;
+          const foreignExpr = `LOWER(${foreignRef})`;
+          return { hostExpr, foreignExpr };
+        }
+        // Multi-link on the host side can't be expanded without duplicating host rows.
+        // Fall through to the generic text/json coercion.
+      }
     }
 
     // Text/JSON combos: coerce both sides to text to avoid operator errors (text = jsonb)
