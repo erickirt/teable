@@ -773,7 +773,9 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
     const tz = this.context?.timeZone as string | undefined;
     const shouldTreat = this.shouldTreatAsDatetime(date, metadataIndex);
     const trusted = shouldTreat && this.isTrustedDatetime(date, metadataIndex);
-    const alreadyTimestamp = this.isTimestampish(date);
+    const paramInfo = metadataIndex != null ? this.getParamInfo(metadataIndex) : undefined;
+    const isTextLike = Boolean(paramInfo?.hasMetadata && isTextLikeParam(paramInfo));
+    const alreadyTimestamp = !isTextLike && this.isTimestampish(date);
     const needsSanitize = !(trusted || alreadyTimestamp);
     const baseExpr = needsSanitize ? this.sanitizeTimestampInput(date) : `(${date})`;
     const wrappedBase = needsSanitize ? `(${baseExpr})` : baseExpr;

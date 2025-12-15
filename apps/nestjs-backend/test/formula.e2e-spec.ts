@@ -5392,6 +5392,82 @@ describe('OpenAPI formula (e2e)', () => {
       expect(persistedAsGeneratedColumn).not.toBe(true);
     });
 
+    it('should evaluate DATETIME_DIFF when referencing string formula fields using "+"', async () => {
+      let table: ITableFullVo | undefined;
+      try {
+        table = await createTable(baseId, {
+          name: 'datetime-diff-from-text-formulas',
+          fields: [
+            { name: 'Name', type: FieldType.SingleLineText } as IFieldRo,
+            {
+              name: 'shift-date-only',
+              type: FieldType.Date,
+              options: {
+                formatting: {
+                  date: DateFormattingPreset.ISO,
+                  time: TimeFormatting.None,
+                  timeZone: 'Etc/GMT-8',
+                },
+              },
+            } as IFieldRo,
+            { name: 'shift-start-time', type: FieldType.SingleLineText } as IFieldRo,
+            { name: 'shift-end-time', type: FieldType.SingleLineText } as IFieldRo,
+          ],
+          records: [
+            {
+              fields: {
+                Name: 'row',
+                'shift-date-only': '2025-10-31T16:00:00.000Z',
+                'shift-start-time': '8:40',
+                'shift-end-time': '8:57',
+              },
+            },
+          ],
+        });
+
+        const dateField = table.fields.find((f) => f.name === 'shift-date-only')!;
+        const startTimeField = table.fields.find((f) => f.name === 'shift-start-time')!;
+        const endTimeField = table.fields.find((f) => f.name === 'shift-end-time')!;
+        const recordId = table.records[0].id;
+
+        const startDatetimeText = await createField(table.id, {
+          name: 'shift-start-datetime-text',
+          type: FieldType.Formula,
+          options: {
+            expression: `DATESTR({${dateField.id}}) + " " + DATETIME_FORMAT(DATESTR({${dateField.id}}) + " " + {${startTimeField.id}}, "HH:mm:ss")`,
+            timeZone: 'Asia/Shanghai',
+          },
+        } as IFieldRo);
+
+        const endDatetimeText = await createField(table.id, {
+          name: 'shift-end-datetime-text',
+          type: FieldType.Formula,
+          options: {
+            expression: `DATESTR({${dateField.id}}) + " " + DATETIME_FORMAT(DATESTR({${dateField.id}}) + " " + {${endTimeField.id}}, "HH:mm:ss")`,
+            timeZone: 'Etc/GMT-8',
+          },
+        } as IFieldRo);
+
+        const durationMinutes = await createField(table.id, {
+          name: 'shift-duration-minutes-from-text',
+          type: FieldType.Formula,
+          options: {
+            expression: `DATETIME_DIFF({${endDatetimeText.id}}, {${startDatetimeText.id}}, "minute")`,
+            timeZone: 'Etc/GMT-8',
+          },
+        } as IFieldRo);
+
+        const recordAfterFormula = await getRecord(table.id, recordId);
+        const rawDuration = recordAfterFormula.data.fields[durationMinutes.name];
+        const duration = typeof rawDuration === 'number' ? rawDuration : Number(rawDuration);
+        expect(duration).toBeCloseTo(17, 6);
+      } finally {
+        if (table) {
+          await permanentDeleteTable(baseId, table.id);
+        }
+      }
+    });
+
     it.each(isSameCases)(
       'should evaluate IS_SAME for unit "%s"',
       async ({ literal, first, second, expected }) => {

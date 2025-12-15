@@ -445,6 +445,32 @@ abstract class BaseSqlConversionVisitor<
     // Add to expansion stack to detect circular references
     this.expansionStack.add(fieldId);
 
+    const selectContext = this.context as ISelectFormulaConversionContext | undefined;
+    const prevTargetDbFieldType = selectContext?.targetDbFieldType;
+    const prevTimeZone = selectContext?.timeZone;
+    const nextTargetDbFieldType = (fieldInfo as unknown as { dbFieldType?: DbFieldType })
+      ?.dbFieldType;
+    const rawOptions = (fieldInfo as unknown as { options?: unknown })?.options;
+    let nextTimeZone: string | undefined;
+    if (rawOptions && typeof rawOptions === 'object') {
+      nextTimeZone = (rawOptions as { timeZone?: string }).timeZone;
+    } else if (typeof rawOptions === 'string') {
+      try {
+        nextTimeZone = (JSON.parse(rawOptions) as { timeZone?: string } | undefined)?.timeZone;
+      } catch {
+        nextTimeZone = undefined;
+      }
+    }
+
+    if (selectContext) {
+      if (nextTargetDbFieldType != null) {
+        selectContext.targetDbFieldType = nextTargetDbFieldType;
+      }
+      if (nextTimeZone != null) {
+        selectContext.timeZone = nextTimeZone;
+      }
+    }
+
     try {
       // Recursively expand the expression by parsing and visiting it
       const tree = parseFormula(expression);
@@ -455,6 +481,10 @@ abstract class BaseSqlConversionVisitor<
 
       return expandedSql;
     } finally {
+      if (selectContext) {
+        selectContext.targetDbFieldType = prevTargetDbFieldType;
+        selectContext.timeZone = prevTimeZone;
+      }
       // Remove from expansion stack
       this.expansionStack.delete(fieldId);
     }
@@ -1408,13 +1438,13 @@ abstract class BaseSqlConversionVisitor<
       ? 'string'
       : inferredType ?? this.inferExpressionType(exprCtx);
     if (type === 'datetime') {
-      if (fieldInfo && this.dialect?.formatDate) {
-        const formatting = this.getFieldDatetimeFormatting(fieldInfo);
-        const fallBackFormatting: IDatetimeFormatting = {
-          date: DateFormattingPreset.ISO,
-          time: TimeFormatting.Hour24,
-          timeZone: this.context?.timeZone ?? 'UTC',
-        };
+      const fallBackFormatting: IDatetimeFormatting = {
+        date: DateFormattingPreset.ISO,
+        time: TimeFormatting.Hour24,
+        timeZone: this.context?.timeZone ?? 'UTC',
+      };
+      const formatting = fieldInfo ? this.getFieldDatetimeFormatting(fieldInfo) : undefined;
+      if (this.dialect?.formatDate) {
         return this.dialect.formatDate(normalizedValue, formatting ?? fallBackFormatting);
       }
       return this.formulaQuery.datetimeFormat(normalizedValue, "'YYYY-MM-DD HH24:MI'");
@@ -1423,8 +1453,20 @@ abstract class BaseSqlConversionVisitor<
   }
 
   private getFieldDatetimeFormatting(fieldInfo: FieldCore): IDatetimeFormatting | undefined {
-    const formatting = (fieldInfo as unknown as { options?: { formatting?: IDatetimeFormatting } })
-      ?.options?.formatting;
+    const rawOptions = (fieldInfo as unknown as { options?: unknown })?.options;
+    const formatting =
+      rawOptions && typeof rawOptions === 'object'
+        ? (rawOptions as { formatting?: IDatetimeFormatting }).formatting
+        : typeof rawOptions === 'string'
+          ? (() => {
+              try {
+                return (JSON.parse(rawOptions) as { formatting?: IDatetimeFormatting } | undefined)
+                  ?.formatting;
+              } catch {
+                return undefined;
+              }
+            })()
+          : undefined;
     if (formatting) return formatting;
 
     const getter = (

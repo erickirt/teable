@@ -6,11 +6,11 @@
 export const DEFAULT_DATETIME_PARSE_PATTERN = (() => {
   const optional = (expr: string) => `(${expr}|)`;
   const digitPair = '[0-9]{2}';
+  const hour = '[0-9]{1,2}';
   const fractionalSeconds = '[.][0-9]{1,6}';
   const secondSegment = ':' + digitPair + optional(fractionalSeconds);
   const timeZoneSegment = `(Z|[+-]${digitPair}|[+-]${digitPair}${digitPair}|[+-]${digitPair}:${digitPair})`;
-  const timePart =
-    `[ T]${digitPair}:${digitPair}` + optional(secondSegment) + optional(timeZoneSegment);
+  const timePart = `[ T]${hour}:${digitPair}` + optional(secondSegment) + optional(timeZoneSegment);
 
   return '^' + '[0-9]{4}-[0-9]{2}-[0-9]{2}' + optional(timePart) + '$';
 })();
