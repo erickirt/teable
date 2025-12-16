@@ -206,6 +206,7 @@ export class FieldService implements IReadonlyAdapterService {
             description,
             type,
             options,
+            aiConfig,
             lookupOptions,
             notNull,
             unique,
@@ -225,6 +226,7 @@ export class FieldService implements IReadonlyAdapterService {
           name,
           description,
           type,
+          aiConfig: aiConfig ? JSON.stringify(aiConfig) : undefined,
           options: JSON.stringify(options),
           notNull,
           unique,
@@ -259,14 +261,155 @@ export class FieldService implements IReadonlyAdapterService {
   }
 
   async dbCreateMultipleField(tableId: string, fieldInstances: IFieldInstance[]) {
-    const multiFieldData: RawField[] = [];
+    if (!fieldInstances.length) {
+      return [];
+    }
 
+    const prisma = this.prismaService.txClient();
+    const userId = this.cls.get('user.id');
+    const fieldIds = fieldInstances.map((field) => field.id);
+
+    // Determine order base once so inserts/restores keep the same ordering behavior as sequential creates.
+    const agg = await prisma.field.aggregate({
+      where: { tableId, deletedTime: null },
+      _max: { order: true },
+    });
+    const baseOrder = agg._max.order == null ? 0 : agg._max.order + 1;
+
+    // Fast path: if none of the ids exist (including deleted rows), use createMany.
+    const existing = await prisma.field.findMany({
+      where: { id: { in: fieldIds } },
+      select: { id: true },
+    });
+
+    if (!existing.length) {
+      const data: Prisma.FieldCreateManyInput[] = fieldInstances.map((fieldInstance, index) => {
+        const {
+          id,
+          name,
+          description,
+          type,
+          options,
+          aiConfig,
+          lookupOptions,
+          notNull,
+          unique,
+          isPrimary,
+          isComputed,
+          hasError,
+          dbFieldType,
+          cellValueType,
+          isMultipleCellValue,
+          isLookup,
+          isConditionalLookup,
+          meta,
+          dbFieldName,
+        } = fieldInstance;
+        return {
+          id,
+          name,
+          description,
+          type,
+          aiConfig: aiConfig ? JSON.stringify(aiConfig) : undefined,
+          options: JSON.stringify(options),
+          meta: meta ? JSON.stringify(meta) : undefined,
+          notNull,
+          unique,
+          isPrimary,
+          order: baseOrder + index,
+          version: 1,
+          isComputed,
+          isLookup,
+          isConditionalLookup,
+          hasError,
+          lookupLinkedFieldId:
+            lookupOptions && isLinkLookupOptions(lookupOptions)
+              ? lookupOptions.linkFieldId
+              : undefined,
+          lookupOptions: lookupOptions ? JSON.stringify(lookupOptions) : undefined,
+          dbFieldName,
+          dbFieldType,
+          cellValueType,
+          isMultipleCellValue,
+          createdBy: userId,
+          tableId,
+        };
+      });
+
+      await prisma.field.createMany({ data });
+      this.invalidateFieldLoader(tableId);
+      return prisma.field.findMany({ where: { id: { in: fieldIds } } });
+    }
+
+    const multiFieldData: RawField[] = [];
     for (let i = 0; i < fieldInstances.length; i++) {
       const fieldInstance = fieldInstances[i];
-      const fieldData = await this.dbCreateField(tableId, fieldInstance);
+      const {
+        id,
+        name,
+        dbFieldName,
+        description,
+        type,
+        options,
+        meta,
+        aiConfig,
+        lookupOptions,
+        notNull,
+        unique,
+        isPrimary,
+        isComputed,
+        hasError,
+        dbFieldType,
+        cellValueType,
+        isMultipleCellValue,
+        isLookup,
+        isConditionalLookup,
+      } = fieldInstance;
 
-      multiFieldData.push(fieldData);
+      const data: Prisma.FieldCreateInput = {
+        id,
+        table: {
+          connect: {
+            id: tableId,
+          },
+        },
+        name,
+        description,
+        type,
+        aiConfig: aiConfig && JSON.stringify(aiConfig),
+        options: JSON.stringify(options),
+        meta: meta && JSON.stringify(meta),
+        notNull,
+        unique,
+        isPrimary,
+        order: baseOrder + i,
+        version: 1,
+        isComputed,
+        isLookup,
+        hasError,
+        // add lookupLinkedFieldId for indexing
+        lookupLinkedFieldId:
+          lookupOptions && isLinkLookupOptions(lookupOptions)
+            ? lookupOptions.linkFieldId
+            : undefined,
+        lookupOptions: lookupOptions && JSON.stringify(lookupOptions),
+        dbFieldName,
+        dbFieldType,
+        cellValueType,
+        isMultipleCellValue,
+        isConditionalLookup,
+        createdBy: userId,
+      };
+
+      const field = await prisma.field.upsert({
+        where: { id: data.id },
+        create: data,
+        update: { ...data, deletedTime: null, version: undefined },
+      });
+      multiFieldData.push(field);
     }
+
+    this.invalidateFieldLoader(tableId);
     return multiFieldData;
   }
 
@@ -275,21 +418,17 @@ export class FieldService implements IReadonlyAdapterService {
   }
 
   private async alterTableAddField(
+    tableId: string,
     dbTableName: string,
     fieldInstances: IFieldInstance[],
     isNewTable: boolean = false,
     isSymmetricField?: boolean
   ) {
-    // Get table ID from dbTableName for field map construction
-    const tableMeta = await this.prismaService.txClient().tableMeta.findFirst({
-      where: { dbTableName },
-      select: { id: true },
-    });
-
-    if (!tableMeta) {
-      throw new NotFoundException(`Table not found: ${dbTableName}`);
-    }
-    const tableDomain = await this.tableDomainQueryService.getTableDomainById(tableMeta.id);
+    const tableDomain = await this.tableDomainQueryService.getTableDomainById(tableId);
+    const tableNameMap = await this.linkFieldQueryService.getTableNameMapForLinkFields(
+      tableId,
+      fieldInstances
+    );
 
     for (const fieldInstance of fieldInstances) {
       const { dbFieldName, type, isLookup, unique, notNull, id: fieldId, name } = fieldInstance;
@@ -302,18 +441,12 @@ export class FieldService implements IReadonlyAdapterService {
         );
       }
 
-      // Build table name map for all field operations
-      const tableNameMap = await this.linkFieldQueryService.getTableNameMapForLinkFields(
-        tableMeta.id,
-        [fieldInstance]
-      );
-
       const alterTableQueries = this.dbProvider.createColumnSchema(
         dbTableName,
         fieldInstance,
         tableDomain,
         isNewTable,
-        tableMeta.id,
+        tableId,
         tableNameMap,
         isSymmetricField,
         false
@@ -752,10 +885,10 @@ export class FieldService implements IReadonlyAdapterService {
   }
 
   async getDbTableName(tableId: string) {
-    const tableMeta = await this.prismaService.txClient().tableMeta.findUniqueOrThrow({
-      where: { id: tableId },
-      select: { dbTableName: true },
-    });
+    const [tableMeta] = await this.dataLoaderService.table.loadByIds([tableId]);
+    if (!tableMeta) {
+      throw new NotFoundException(`Table not found: ${tableId}`);
+    }
     return tableMeta.dbTableName;
   }
 
@@ -1057,7 +1190,7 @@ export class FieldService implements IReadonlyAdapterService {
     });
 
     // 1. alter table with real field in visual table
-    await this.alterTableAddField(dbTableName, fields, false, isSymmetricField);
+    await this.alterTableAddField(tableId, dbTableName, fields, false, isSymmetricField);
 
     // 2. save field meta in db
     await this.dbCreateMultipleField(tableId, fields);
@@ -1079,7 +1212,7 @@ export class FieldService implements IReadonlyAdapterService {
     });
 
     // 1. alter table with real field in visual table
-    await this.alterTableAddField(dbTableName, fields, true); // This is new table creation
+    await this.alterTableAddField(tableId, dbTableName, fields, true); // This is new table creation
 
     // 2. save field meta in db
     await this.dbCreateMultipleFields(tableId, fields);
@@ -1092,7 +1225,7 @@ export class FieldService implements IReadonlyAdapterService {
     const dbTableName = await this.getDbTableName(tableId);
 
     // 1. alter table with real field in visual table
-    await this.alterTableAddField(dbTableName, [fieldInstance]);
+    await this.alterTableAddField(tableId, dbTableName, [fieldInstance]);
 
     // 2. save field meta in db
     await this.dbCreateMultipleField(tableId, [fieldInstance]);

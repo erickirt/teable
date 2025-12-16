@@ -2004,12 +2004,13 @@ export class FieldSupplementService {
       );
     }
 
-    for (const fromFieldId of fieldIds) {
-      await this.prismaService.txClient().reference.create({
-        data: {
+    if (fieldIds.length) {
+      await this.prismaService.txClient().reference.createMany({
+        data: fieldIds.map((fromFieldId) => ({
           fromFieldId,
           toFieldId,
-        },
+        })),
+        skipDuplicates: true,
       });
     }
   }
@@ -2050,6 +2051,54 @@ export class FieldSupplementService {
         fromFieldId: sourceFieldId,
         toFieldId: fieldId,
       },
+    });
+  }
+
+  async createFieldTaskReferences(tableId: string, fields: IFieldInstance[]) {
+    if (!fields.length) return;
+
+    const prisma = this.prismaService.txClient();
+    const toFieldIds = fields.map((field) => field.id);
+
+    await prisma.taskReference.deleteMany({
+      where: { toFieldId: { in: toFieldIds } },
+    });
+
+    const existingFieldIds = await prisma.field.findMany({
+      where: { tableId, deletedTime: null },
+      select: { id: true },
+    });
+
+    const existingFieldIdSet = new Set(existingFieldIds.map(({ id }) => id));
+    // Include fields created in this batch so AI references can resolve within the same operation.
+    toFieldIds.forEach((id) => existingFieldIdSet.add(id));
+
+    const rows: Array<{ fromFieldId: string; toFieldId: string }> = [];
+
+    for (const field of fields) {
+      const { id: toFieldId, aiConfig } = field;
+      const { type } = aiConfig ?? {};
+      if (!type) continue;
+
+      if (type === FieldAIActionType.Customization) {
+        const { prompt, attachmentFieldIds = [] } = aiConfig as ITextFieldCustomizeAIConfig;
+        const fieldIds = extractFieldReferences(prompt);
+        const allFieldIds = Array.from(new Set([...fieldIds, ...attachmentFieldIds]));
+        const fieldIdsToCreate = allFieldIds.filter((id) => existingFieldIdSet.has(id));
+        fieldIdsToCreate.forEach((fromFieldId) => rows.push({ fromFieldId, toFieldId }));
+        continue;
+      }
+
+      const { sourceFieldId } = (aiConfig as ITextFieldSummarizeAIConfig) ?? {};
+      if (!sourceFieldId || !existingFieldIdSet.has(sourceFieldId)) continue;
+      rows.push({ fromFieldId: sourceFieldId, toFieldId });
+    }
+
+    if (!rows.length) return;
+
+    await prisma.taskReference.createMany({
+      data: rows,
+      skipDuplicates: true,
     });
   }
 }

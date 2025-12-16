@@ -17,6 +17,7 @@ import {
   extractFieldIdsFromFilter,
 } from '@teable/core';
 import type {
+  IColumn,
   IFieldVo,
   IConvertFieldRo,
   IUpdateFieldRo,
@@ -730,29 +731,31 @@ export class FieldOpenApiService {
           set.add(fieldId);
         };
 
+        const createPayload = orderedFields.map((field) => {
+          const { columnMeta, references, ...fieldVo } = field;
+          if (references?.length) {
+            references.forEach((refId) => referencesToRestore.add(refId));
+          }
+
+          return {
+            field: createFieldInstanceByVo(fieldVo),
+            columnMeta: columnMeta as unknown as Record<string, IColumn>,
+          };
+        });
+
         await this.computedOrchestrator.computeCellChangesForFieldsAfterCreate(
           sourceEntries,
           async () => {
-            for (const field of orderedFields) {
-              const { columnMeta, references, ...fieldVo } = field;
-              const fieldInstance = createFieldInstanceByVo(fieldVo);
+            const createResult = await this.fieldCreatingService.alterCreateFieldsInExistingTable(
+              tableId,
+              createPayload
+            );
+            created.push(...createResult);
 
-              const createResult = await this.fieldCreatingService.alterCreateField(
-                tableId,
-                fieldInstance,
-                columnMeta
-              );
-              created.push(...createResult);
-
-              if (references?.length) {
-                references.forEach((refId) => referencesToRestore.add(refId));
-              }
-
-              for (const { tableId: tid, field } of createResult) {
-                addSourceField(tid, field.id);
-                if (field.isComputed) {
-                  markPending(tid, field.id);
-                }
+            for (const { tableId: tid, field } of createResult) {
+              addSourceField(tid, field.id);
+              if (field.isComputed) {
+                markPending(tid, field.id);
               }
             }
 

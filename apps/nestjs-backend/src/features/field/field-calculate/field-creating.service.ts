@@ -30,10 +30,7 @@ export class FieldCreatingService {
     await this.fieldSupplementService.createReference(field);
     await this.fieldSupplementService.createFieldTaskReference(tableId, field);
 
-    const { dbTableName } = await this.prismaService.txClient().tableMeta.findUniqueOrThrow({
-      where: { id: tableId },
-      select: { dbTableName: true },
-    });
+    const dbTableName = await this.fieldService.getDbTableName(tableId);
 
     await this.fieldService.batchCreateFields(tableId, dbTableName, [field], isSymmetricField);
 
@@ -44,20 +41,50 @@ export class FieldCreatingService {
     );
   }
 
+  private async createFieldItemsBatch(
+    tableId: string,
+    fieldInstances: IFieldInstance[],
+    initViewColumnMapList?: Array<Record<string, IColumn> | undefined>,
+    isSymmetricField?: boolean
+  ) {
+    if (!fieldInstances.length) return;
+
+    const dbTableName = await this.fieldService.getDbTableName(tableId);
+
+    for (const field of fieldInstances) {
+      await this.fieldSupplementService.createReference(field);
+    }
+    await this.fieldSupplementService.createFieldTaskReferences(tableId, fieldInstances);
+
+    await this.fieldService.batchCreateFields(
+      tableId,
+      dbTableName,
+      fieldInstances,
+      isSymmetricField
+    );
+
+    const fieldIds = fieldInstances.map((field) => field.id);
+    const shouldInit =
+      !!initViewColumnMapList?.length &&
+      initViewColumnMapList.some((m) => m && Object.keys(m).length);
+    const normalizedInitList = shouldInit
+      ? initViewColumnMapList.map((m) => m ?? ({} as Record<string, IColumn>))
+      : undefined;
+
+    await this.viewService.initViewColumnMeta(tableId, fieldIds, normalizedInitList);
+  }
+
   async createFields(
     tableId: string,
     fieldInstances: IFieldInstance[],
     initViewColumnMap?: Record<string, IColumn>
   ) {
-    const { dbTableName } = await this.prismaService.txClient().tableMeta.findUniqueOrThrow({
-      where: { id: tableId },
-      select: { dbTableName: true },
-    });
+    const dbTableName = await this.fieldService.getDbTableName(tableId);
 
     for (const field of fieldInstances) {
       await this.fieldSupplementService.createReference(field);
-      await this.fieldSupplementService.createFieldTaskReference(tableId, field);
     }
+    await this.fieldSupplementService.createFieldTaskReferences(tableId, fieldInstances);
     const fieldIds = fieldInstances.map((field) => field.id);
     await this.viewService.initViewColumnMeta(
       tableId,
@@ -66,6 +93,49 @@ export class FieldCreatingService {
     );
 
     await this.fieldService.batchCreateFieldsAtOnce(tableId, dbTableName, fieldInstances);
+  }
+
+  async alterCreateFieldsInExistingTable(
+    tableId: string,
+    fields: Array<{ field: IFieldInstance; columnMeta?: Record<string, IColumn> }>
+  ) {
+    if (!fields.length) return [] as { tableId: string; field: IFieldInstance }[];
+
+    const baseFieldInstances = fields.map(({ field }) => field);
+    const initViewColumnMapList = fields.map(({ columnMeta }) => columnMeta);
+
+    await this.createFieldItemsBatch(tableId, baseFieldInstances, initViewColumnMapList);
+
+    const created: { tableId: string; field: IFieldInstance }[] = baseFieldInstances.map(
+      (field) => ({
+        tableId,
+        field,
+      })
+    );
+
+    const linkFields = baseFieldInstances.filter(
+      (field) => field.type === FieldType.Link && !field.isLookup
+    ) as LinkFieldDto[];
+
+    const symmetricByTable = new Map<string, LinkFieldDto[]>();
+    for (const linkField of linkFields) {
+      if (!linkField.options.symmetricFieldId) continue;
+      const symmetricField = await this.fieldSupplementService.generateSymmetricField(
+        tableId,
+        linkField
+      );
+      const foreignTableId = linkField.options.foreignTableId;
+      const list = symmetricByTable.get(foreignTableId) ?? [];
+      list.push(symmetricField);
+      symmetricByTable.set(foreignTableId, list);
+    }
+
+    for (const [foreignTableId, symmetricFields] of symmetricByTable.entries()) {
+      await this.createFieldItemsBatch(foreignTableId, symmetricFields, undefined, true);
+      symmetricFields.forEach((field) => created.push({ tableId: foreignTableId, field }));
+    }
+
+    return created;
   }
 
   async alterCreateField(tableId: string, field: IFieldInstance, columnMeta?: IColumnMeta) {
@@ -110,17 +180,28 @@ export class FieldCreatingService {
       (field) => field.type === FieldType.Link && !field.isLookup
     ) as LinkFieldDto[];
 
-    for (const field of linkFields) {
-      // Foreign key creation is now handled by the visitor in createFieldItem
-      await this.createFieldItem(tableId, field, columnMeta);
-      if (field.options.symmetricFieldId) {
+    if (linkFields.length) {
+      const initViewColumnMapList = columnMeta
+        ? linkFields.map(() => columnMeta as unknown as Record<string, IColumn>)
+        : undefined;
+      await this.createFieldItemsBatch(tableId, linkFields, initViewColumnMapList);
+
+      const symmetricByTable = new Map<string, LinkFieldDto[]>();
+      for (const field of linkFields) {
+        if (!field.options.symmetricFieldId) continue;
         const symmetricField = await this.fieldSupplementService.generateSymmetricField(
           tableId,
           field
         );
+        const foreignTableId = field.options.foreignTableId;
+        const list = symmetricByTable.get(foreignTableId) ?? [];
+        list.push(symmetricField);
+        symmetricByTable.set(foreignTableId, list);
+        newFields.push({ tableId: foreignTableId, field: symmetricField });
+      }
 
-        await this.createFieldItem(field.options.foreignTableId, symmetricField, undefined, true);
-        newFields.push({ tableId: field.options.foreignTableId, field: symmetricField });
+      for (const [foreignTableId, symmetricFields] of symmetricByTable.entries()) {
+        await this.createFieldItemsBatch(foreignTableId, symmetricFields, undefined, true);
       }
     }
 
