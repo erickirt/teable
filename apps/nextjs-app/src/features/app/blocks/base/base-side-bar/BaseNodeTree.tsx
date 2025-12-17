@@ -25,6 +25,7 @@ import AddBoldIcon from '@teable/ui-lib/icons/app/add-bold.svg';
 import { Button, cn, Input, Skeleton } from '@teable/ui-lib/shadcn';
 import { ScrollArea, ScrollBar } from '@teable/ui-lib/shadcn/ui/scroll-area';
 import { Tree, TreeDragLine, TreeItem, TreeItemLabel } from '@teable/ui-lib/src/shadcn/ui/tree';
+import { ChevronDownIcon } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useTranslation } from 'next-i18next';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -33,6 +34,7 @@ import { Emoji } from '@/features/app/components/emoji/Emoji';
 import { EmojiPicker } from '@/features/app/components/emoji/EmojiPicker';
 import { useBaseResource } from '@/features/app/hooks/useBaseResource';
 import { useDisableAIAction } from '@/features/app/hooks/useDisableAIAction';
+import { useIsCommunity } from '@/features/app/hooks/useIsCommunity';
 import { useSetting } from '@/features/app/hooks/useSetting';
 import { usePinMap } from '../../space/usePinMap';
 import { useTableHref } from '../../table-list/useTableHref';
@@ -51,7 +53,7 @@ import { BaseNodeAddResourceButton } from './BaseNodeAddResourceButton';
 import { BaseNodeMore } from './BaseNodeMore';
 import { BaseNodeStarButton } from './BaseNodeStarButton';
 
-const INDENTATION_WIDTH = 16;
+const INDENTATION_WIDTH = 24;
 const SCROLL_EDGE_THRESHOLD = 60; // pixels from edge to trigger scroll
 const SCROLL_MAX_SPEED = 15; // max pixels per frame
 
@@ -138,10 +140,11 @@ export const BaseNodeTree = (props: IBaseNodeTreeProps) => {
   const { buildApp: buildAppEnabled } = useDisableAIAction();
   const { disallowDashboard } = useSetting();
   const pinMap = usePinMap();
+  const isCommunity = useIsCommunity();
   const canCreateTable = Boolean(permission?.['table|create']);
   const canCreateDashboard = Boolean(permission?.['base|update'] && !disallowDashboard);
-  const canCreateWorkflow = Boolean(permission?.['automation|create']);
-  const canCreateApp = Boolean(buildAppEnabled && permission?.['base|update']);
+  const canCreateWorkflow = !isCommunity && Boolean(permission?.['automation|create']);
+  const canCreateApp = !isCommunity && Boolean(buildAppEnabled && permission?.['base|update']);
   const canCreateFolder = Boolean(permission?.['base|update']);
 
   const canCreateResource =
@@ -549,7 +552,9 @@ export const BaseNodeTree = (props: IBaseNodeTreeProps) => {
     const icon = getNodeIcon(data);
     const isFolder = item.isFolder();
     if (isFolder) {
-      return <IconComponent className="size-4 shrink-0" />;
+      return (
+        <ChevronDownIcon className="size-4 text-muted-foreground group-aria-[expanded=false]:-rotate-90" />
+      );
     }
     return (
       // eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
