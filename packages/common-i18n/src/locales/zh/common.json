@@ -462,18 +462,18 @@
         "modelPreferences": "模型偏好",
         "modelPreferencesDescription": "模型提供商的模型偏好",
         "embeddingModel": "嵌入模型",
-        "embeddingModelDescription": "可选，通常模型 ID 包含 \"embedding\"",
+        "embeddingModelDescription": "可选。用于文档问答。通常模型 ID 包含 \"embedding\"。",
         "translationModel": "翻译模型",
         "translationModelDescription": "要使用的翻译模型",
         "chatModel": "对话模型",
         "chatModelDescription": "要使用的对话模型，提示：中型编码模型默认用于 AI 公式生成和相关功能",
         "chatModels": {
           "sm": "小型对话模型",
-          "smDescription": "用于场景推荐和简单快速操作等任务",
+          "smDescription": "用于自动生成聊天标题和 Base 名称。推荐使用 claude-haiku-4.5",
           "md": "中型对话模型",
-          "mdDescription": "对于需要速度和质量的场景，如创建数据库，建议使用 GPT-4o",
+          "mdDescription": "用于 AI 公式生成。如未配置则使用 lg 模型。推荐使用 claude-haiku-4.5",
           "lg": "高级对话模型",
-          "lgDescription": "对于规划、编码和其他复杂任务场景，建议使用 claude-sonnet-4"
+          "lgDescription": "用于规划、编码和其他复杂任务场景。推荐使用 claude-sonnet-4.5"
         },
         "actions": {
           "aiBasicCapability": {
@@ -551,7 +551,7 @@
       },
       "app": {
         "domain": "域名",
-        "v0ApiKey": "V0 API 密钥",
+        "v0ApiKey": "v0 API 密钥",
         "customDomain": "自定义域名 (可选)",
         "customDomainDescription": "设置应用部署的自定义域名，访问 <a>Vercel 域名</a> 获取自定义域名",
         "vercelToken": "Vercel API 密钥",

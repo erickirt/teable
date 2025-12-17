@@ -352,18 +352,18 @@
         "modelPreferences": "Preferenze del modello",
         "modelPreferencesDescription": "Le preferenze del modello per il fornitore LLM",
         "embeddingModel": "Modello di embedding",
-        "embeddingModelDescription": "Il modello di embedding da utilizzare",
+        "embeddingModelDescription": "Optional. For Document Q&A. Usually, the model ID contains \"embedding\".",
         "translationModel": "Modello di traduzione",
         "translationModelDescription": "Il modello di traduzione da utilizzare",
         "chatModel": "Modello di chat",
         "chatModelDescription": "Il modello di chat da utilizzare, Suggerimento: il modello di codifica medio viene utilizzato per impostazione predefinita per la generazione di formule AI e funzioni correlate",
         "chatModels": {
           "sm": "Modello di chat piccolo",
-          "smDescription": "Utilizzato per attività come raccomandazioni di scenario e operazioni rapide semplici",
+          "smDescription": "Utilizzato per la generazione automatica di titoli chat e nomi base. Consigliato: claude-haiku-4.5",
           "md": "Modello di chat medio",
-          "mdDescription": "Per scenari che richiedono velocità e qualità, come la creazione di database, si consiglia di utilizzare GPT-4o",
+          "mdDescription": "Utilizzato per la generazione di formule AI. Usa lg se non configurato. Consigliato: claude-haiku-4.5",
           "lg": "Modello di chat avanzato",
-          "lgDescription": "Per pianificazione, codifica e altri scenari di compiti complessi, si consiglia di utilizzare claude-sonnet-4"
+          "lgDescription": "Per pianificazione, programmazione e altri scenari di attività complesse. Consigliato: claude-sonnet-4.5"
         },
         "chatModelTest": {
           "text": "Testa modello",
@@ -415,7 +415,7 @@
       },
       "app": {
         "domain": "Dominio",
-        "v0ApiKey": "Chiave API V0",
+        "v0ApiKey": "Chiave API v0",
         "customDomain": "Dominio Personalizzato (Opzionale)",
         "customDomainDescription": "Imposta il tuo dominio personalizzato per la distribuzione dell'app, accedi al <a>dominio Vercel</a> per ottenere il dominio personalizzato",
         "vercelToken": "Token API Vercel",

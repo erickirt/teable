@@ -350,18 +350,18 @@
         "modelPreferences": "Model tercihleri",
         "modelPreferencesDescription": "Model sağlayıcının model tercihleri",
         "embeddingModel": "Gömme modeli",
-        "embeddingModelDescription": "İsteğe bağlı, genellikle model kimliği \"embedding\" içerir",
+        "embeddingModelDescription": "Optional. For Document Q&A. Usually, the model ID contains \"embedding\".",
         "translationModel": "Çeviri modeli",
         "translationModelDescription": "Kullanılacak çeviri modeli",
         "chatModel": "Sohbet modeli",
         "chatModelDescription": "Kullanılacak sohbet modeli, İpucu: orta kodlama modeli varsayılan olarak AI formül üretimi ve ilgili özellikler için kullanılır",
         "chatModels": {
           "sm": "Küçük sohbet modeli",
-          "smDescription": "Sahne önerisi ve basit hızlı işlemler gibi görevler için kullanılır",
+          "smDescription": "Sohbet başlıkları ve base adlarının otomatik oluşturulması için kullanılır. Önerilen: claude-haiku-4.5",
           "md": "Orta sohbet modeli",
-          "mdDescription": "Hız ve kalite gerektiren senaryolar için, veritabanı oluşturma gibi, GPT-4o kullanılması önerilir",
+          "mdDescription": "AI formül oluşturma için kullanılır. Yapılandırılmamışsa lg kullanılır. Önerilen: claude-haiku-4.5",
           "lg": "Gelişmiş sohbet modeli",
-          "lgDescription": "Planlama, kodlama ve diğer karmaşık görev senaryoları için claude-sonnet-4 kullanılması önerilir"
+          "lgDescription": "Planlama, kodlama ve diğer karmaşık görev senaryoları için. Önerilen: claude-sonnet-4.5"
         },
         "chatModelTest": {
           "text": "Test modeli",
@@ -413,7 +413,7 @@
       },
       "app": {
         "domain": "Alan Adı",
-        "v0ApiKey": "V0 API Anahtarı",
+        "v0ApiKey": "v0 API Anahtarı",
         "customDomain": "Özel Alan Adı (İsteğe Bağlı)",
         "customDomainDescription": "Uygulama dağıtımı için özel alan adınızı ayarlayın, özel alan adı almak için <a>Vercel alan adına</a> erişin",
         "vercelToken": "Vercel API Token",

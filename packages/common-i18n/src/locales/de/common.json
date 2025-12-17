@@ -356,18 +356,18 @@
         "modelPreferences": "Modellpräferenzen",
         "modelPreferencesDescription": "Die Modellpräferenzen für den LLM-Anbieter",
         "embeddingModel": "Einbettungsmodell",
-        "embeddingModelDescription": "Optional, normalerweise enthält die Modell-ID \"embedding\"",
+        "embeddingModelDescription": "Optional. For Document Q&A. Usually, the model ID contains \"embedding\".",
         "translationModel": "Übersetzungsmodell",
         "translationModelDescription": "Das zu verwendende Übersetzungsmodell",
         "chatModel": "Chat-Modell",
         "chatModelDescription": "Das zu verwendende Chat-Modell, Tipp: Das mittlere Kodierungsmodell wird standardmäßig für AI-Formelgenerierung und verwandte Funktionen verwendet",
         "chatModels": {
           "sm": "Kleines Chat-Modell",
-          "smDescription": "Wird für Aufgaben wie Szenenempfehlungen und einfache schnelle Operationen verwendet",
+          "smDescription": "Für die automatische Generierung von Chat-Titeln und Base-Namen. Empfohlen: claude-haiku-4.5",
           "md": "Mittleres Chat-Modell",
-          "mdDescription": "Für Szenarien, die Geschwindigkeit und Qualität erfordern, wie z.B. das Erstellen einer Datenbank, wird die Verwendung von GPT-4o empfohlen",
+          "mdDescription": "Für AI-Formelgenerierung. Falls nicht konfiguriert, wird lg verwendet. Empfohlen: claude-haiku-4.5",
           "lg": "Erweiteres Chat-Modell",
-          "lgDescription": "Für Planung, Kodierung und andere komplexe Aufgabenszenarien wird die Verwendung von claude-sonnet-4 empfohlen"
+          "lgDescription": "Für Planung, Programmierung und andere komplexe Aufgabenszenarien. Empfohlen: claude-sonnet-4.5"
         },
         "chatModelTest": {
           "text": "Modell testen",
@@ -419,7 +419,7 @@
       },
       "app": {
         "domain": "Domain",
-        "v0ApiKey": "V0 API Schlüssel",
+        "v0ApiKey": "v0 API-Schlüssel",
         "customDomain": "Benutzerdefinierte Domain (Optional)",
         "customDomainDescription": "Legen Sie Ihre benutzerdefinierte Domain für die App-Bereitstellung fest, besuchen Sie <a>Vercel Domain</a> um eine benutzerdefinierte Domain zu erhalten",
         "vercelToken": "Vercel API Token",

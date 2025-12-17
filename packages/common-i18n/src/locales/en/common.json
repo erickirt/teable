@@ -465,23 +465,23 @@
         "modelPreferences": "Model preferences",
         "modelPreferencesDescription": "The model preferences for the LLM provider",
         "embeddingModel": "Embedding model",
-        "embeddingModelDescription": "Optional, usually the model ID contains \"embedding\"",
+        "embeddingModelDescription": "Optional. For Document Q&A. Usually, the model ID contains \"embedding\".",
         "translationModel": "Translation model",
         "translationModelDescription": "The translation model to use",
         "chatModel": "Chat model",
         "chatModelDescription": "The chat model to use, Tips: md model default used for AI formula generation and related features",
         "chatModels": {
           "sm": "Small chat model",
-          "smDescription": "Used for tasks such as scene recommendation and simple quick operations",
+          "smDescription": "Used for auto-generating chat titles and base names. Recommended: claude-haiku-4.5",
           "md": "Medium chat model",
-          "mdDescription": "For scenarios that require speed and quality, such as creating Base, it is recommended to use GPT-4o",
+          "mdDescription": "Used for AI formula generation. Falls back to lg if not configured. Recommended: claude-haiku-4.5",
           "lg": "Advanced chat model",
-          "lgDescription": "For planning, coding, and other complex task scenarios, it is recommended to use claude-sonnet-4"
+          "lgDescription": "For planning, coding, and other complex task scenarios. Recommended: claude-sonnet-4.5"
         },
         "actions": {
           "aiBasicCapability": {
             "title": "AI basic capability",
-            "description": "AI Basic Capability, include AI table query tool, execute SQL query tool, generate script tool, table data visualization tool, update database information tool"
+            "description": "AI basic capability for table queries, SQL execution, script generation, and data visualization"
           },
           "buildBase": {
             "title": "Create base",
@@ -554,7 +554,7 @@
       },
       "app": {
         "domain": "Domain",
-        "v0ApiKey": "V0 API Key",
+        "v0ApiKey": "v0 API key",
         "customDomain": "Custom Domain (Optional)",
         "customDomainDescription": "Set your custom domain for app deployment, access <a>Vercel domain</a> to get custom domain",
         "vercelToken": "Vercel API Token",

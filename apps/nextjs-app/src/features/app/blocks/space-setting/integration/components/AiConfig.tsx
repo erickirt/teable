@@ -130,7 +130,7 @@ export const AIConfig = (props: IAIConfigProps) => {
         {/* App Configuration Section */}
         {(isEE || isCloud) && (
           <div className="relative flex flex-col gap-2">
-            <div className="text-left text-lg font-semibold text-zinc-900">{t('app.title')}</div>
+            <div className="text-left text-lg font-semibold text-foreground">{t('app.title')}</div>
             <div className="flex flex-col gap-4 overflow-hidden">
               <div className="relative flex flex-col gap-1">
                 <div className="text-left text-xs text-muted-foreground">
@@ -151,8 +151,8 @@ export const AIConfig = (props: IAIConfigProps) => {
                 </div>
               </div>
               <div className="relative flex flex-col gap-2">
-                <div className="self-stretch text-left text-sm font-medium text-zinc-900">
-                  {t('admin.setting.ai.apiKey')}
+                <div className="self-stretch text-left text-sm font-medium text-foreground">
+                  {t('admin.setting.app.v0ApiKey')}
                 </div>
                 <div className="flex flex-col gap-2 p-0.5">
                   <Input
@@ -177,7 +177,7 @@ export const AIConfig = (props: IAIConfigProps) => {
         {(isEE || isCloud) && (
           <div className="relative flex flex-col gap-2">
             <div className="flex flex-col gap-4 overflow-hidden">
-              <div className="text-left text-lg font-semibold text-zinc-900">
+              <div className="text-left text-lg font-semibold text-foreground">
                 {t('admin.configuration.list.webSearch.title')}
               </div>
               <div className="relative flex flex-col gap-1">
@@ -199,7 +199,7 @@ export const AIConfig = (props: IAIConfigProps) => {
                 </div>
               </div>
               <div className="relative flex flex-col gap-2">
-                <div className="self-stretch text-left text-sm font-medium text-zinc-900">
+                <div className="self-stretch text-left text-sm font-medium text-foreground">
                   {t('admin.setting.ai.apiKey')}
                 </div>
                 <div className="flex flex-col gap-2 p-0.5">

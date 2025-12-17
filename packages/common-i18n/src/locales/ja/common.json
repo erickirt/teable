@@ -345,18 +345,18 @@
         "modelPreferences": "モデルの設定",
         "modelPreferencesDescription": "LLMプロバイダーのモデルの設定",
         "embeddingModel": "埋め込みモデル",
-        "embeddingModelDescription": "オプション、通常モデルIDには\"embedding\"が含まれます",
+        "embeddingModelDescription": "Optional. For Document Q&A. Usually, the model ID contains \"embedding\".",
         "translationModel": "翻訳モデル",
         "translationModelDescription": "使用する翻訳モデル",
         "chatModel": "チャットモデル",
         "chatModelDescription": "使用するチャットモデル、ヒント: 中型コーディングモデルはAI数式生成と関連機能にデフォルトで使用されます",
         "chatModels": {
           "sm": "小型チャットモデル",
-          "smDescription": "シーン推奨やシンプルなクイック操作などのタスクに使用されます",
+          "smDescription": "チャットタイトルとベース名の自動生成に使用。推奨: claude-haiku-4.5",
           "md": "中型チャットモデル",
-          "mdDescription": "データベース作成など、スピードと品質が必要なシナリオには、GPT-4oの使用をお勧めします",
+          "mdDescription": "AI数式生成に使用。未設定の場合はlgにフォールバック。推奨: claude-haiku-4.5",
           "lg": "高度なチャットモデル",
-          "lgDescription": "計画、コーディング、その他の複雑なタスクシナリオには、claude-sonnet-4の使用をお勧めします"
+          "lgDescription": "計画、コーディング、その他の複雑なタスクシナリオに使用。推奨: claude-sonnet-4.5"
         },
         "chatModelTest": {
           "text": "モデルをテスト",
@@ -408,7 +408,7 @@
       },
       "app": {
         "domain": "ドメイン",
-        "v0ApiKey": "V0 APIキー",
+        "v0ApiKey": "v0 APIキー",
         "customDomain": "カスタムドメイン（オプション）",
         "customDomainDescription": "アプリのデプロイ用のカスタムドメインを設定し、<a>Vercelドメイン</a>にアクセスしてカスタムドメインを取得してください",
         "vercelToken": "Vercel APIトークン",
