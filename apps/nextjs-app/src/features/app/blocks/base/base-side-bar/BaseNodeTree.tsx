@@ -5,6 +5,7 @@ import type {
   IBaseNodeVo,
   IDuplicateBaseNodeRo,
   IBaseNodeWorkflowResourceMeta,
+  IBaseNodeAppResourceMeta,
 } from '@teable/openapi';
 import { BaseNodeResourceType } from '@teable/openapi';
 import { LocalStorageKeys, ReactQueryKeys } from '@teable/sdk/config';
@@ -146,6 +147,7 @@ export const BaseNodeTree = (props: IBaseNodeTreeProps) => {
   const canCreateWorkflow = !isCommunity && Boolean(permission?.['automation|create']);
   const canCreateApp = !isCommunity && Boolean(buildAppEnabled && permission?.['app|create']);
   const canCreateFolder = Boolean(permission?.['base|update']);
+  const canUpdateTable = Boolean(permission?.['table|update']);
 
   const canCreateResource =
     isEditMode &&
@@ -558,24 +560,38 @@ export const BaseNodeTree = (props: IBaseNodeTreeProps) => {
     }
     return (
       // eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
-      <div className="cursor-pointer" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="flex size-4 shrink-0 cursor-pointer items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+      >
         {resourceType === BaseNodeResourceType.Table && (
           <EmojiPicker
-            className="flex size-4 items-center justify-center hover:bg-muted-foreground/60"
+            className="flex size-full items-center justify-center hover:bg-muted-foreground/60"
             onChange={(icon: string) => curdHooks.updateNode(nodeId, { icon })}
+            disabled={!canUpdateTable}
           >
-            {icon ? (
-              <Emoji emoji={icon} size={'1rem'} />
-            ) : (
-              <IconComponent className="size-4 shrink-0" />
-            )}
+            {icon ? <Emoji emoji={icon} size="1rem" /> : <IconComponent className="size-full" />}
           </EmojiPicker>
         )}
-        {resourceType !== BaseNodeResourceType.Table && (
-          <IconComponent className="size-4 shrink-0" />
-        )}
+        {resourceType !== BaseNodeResourceType.Table && <IconComponent className="size-full" />}
       </div>
     );
+  };
+
+  const ItemStatus = ({ item }: { item: ItemInstance<TreeItemData> }) => {
+    const node = item.getItemData();
+    if (!node) return null;
+    const { resourceType, resourceMeta } = node;
+    const isWorkflowActive =
+      resourceType === BaseNodeResourceType.Workflow &&
+      (resourceMeta as IBaseNodeWorkflowResourceMeta)?.isActive;
+    const isAppPublished =
+      resourceType === BaseNodeResourceType.App &&
+      (resourceMeta as IBaseNodeAppResourceMeta)?.publicUrl;
+    if (isWorkflowActive || isAppPublished) {
+      return <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />;
+    }
+    return null;
   };
 
   const renderEmpty = () => {
@@ -674,10 +690,8 @@ export const BaseNodeTree = (props: IBaseNodeTreeProps) => {
                             >
                               {item.getItemName()}
                             </span>
-                            {node.resourceType === BaseNodeResourceType.Workflow &&
-                              (node.resourceMeta as IBaseNodeWorkflowResourceMeta)?.isActive && (
-                                <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
-                              )}
+
+                            <ItemStatus item={item} />
                           </div>
                           {
                             // eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
