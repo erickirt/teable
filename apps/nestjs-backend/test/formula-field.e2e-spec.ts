@@ -222,6 +222,22 @@ describe('OpenAPI Formula Field (e2e)', () => {
       expect(records[1].fields[formulaField.id]).toBe('Selected: Option B');
     });
 
+    it('should substitute numeric field as text', async () => {
+      const numberFieldId = table.fields.find((f) => f.name === 'Number Field')!.id;
+
+      const formulaField = await createField(table.id, {
+        type: FieldType.Formula,
+        name: 'Number Substitute',
+        options: {
+          expression: `SUBSTITUTE({${numberFieldId}}, "0", "X")`,
+        },
+      });
+
+      const { records } = await getRecords(table.id, { fieldKeyType: FieldKeyType.Id });
+      expect(records[0].fields[formulaField.id]).toBe('42.5');
+      expect(records[1].fields[formulaField.id]).toBe('1XX');
+    });
+
     it('should create formula with multiple field references', async () => {
       const textFieldId = table.fields.find((f) => f.name === 'Text Field')!.id;
       const numberFieldId = table.fields.find((f) => f.name === 'Number Field')!.id;

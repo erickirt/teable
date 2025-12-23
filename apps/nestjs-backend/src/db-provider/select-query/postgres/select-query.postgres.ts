@@ -1167,12 +1167,15 @@ export class SelectQueryPostgres extends SelectQueryAbstract {
   }
 
   substitute(text: string, oldText: string, newText: string, instanceNum?: string): string {
+    const source = this.coerceArrayLikeToText(text, 0);
+    const search = this.coerceArrayLikeToText(oldText, 1);
+    const replacement = this.coerceArrayLikeToText(newText, 2);
     if (instanceNum) {
       // PostgreSQL doesn't have direct support for replacing specific instance
       // This is a simplified implementation
-      return `REPLACE(${text}, ${oldText}, ${newText})`;
+      return `REPLACE(${source}, ${search}, ${replacement})`;
     }
-    return `REPLACE(${text}, ${oldText}, ${newText})`;
+    return `REPLACE(${source}, ${search}, ${replacement})`;
   }
 
   lower(text: string): string {

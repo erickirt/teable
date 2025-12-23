@@ -796,7 +796,9 @@ export class GeneratedColumnQueryPostgres extends GeneratedColumnQueryAbstract {
   }
 
   replace(oldText: string, startNum: string, numChars: string, newText: string): string {
-    return `OVERLAY(${oldText} PLACING ${newText} FROM ${startNum}::integer FOR ${numChars}::integer)`;
+    const source = this.ensureTextCollation(oldText);
+    const replacement = this.ensureTextCollation(newText);
+    return `OVERLAY(${source} PLACING ${replacement} FROM ${startNum}::integer FOR ${numChars}::integer)`;
   }
 
   regexpReplace(text: string, pattern: string, replacement: string): string {
@@ -807,12 +809,15 @@ export class GeneratedColumnQueryPostgres extends GeneratedColumnQueryAbstract {
   }
 
   substitute(text: string, oldText: string, newText: string, instanceNum?: string): string {
+    const source = this.ensureTextCollation(this.coerceToTextComparable(text, 0));
+    const search = this.ensureTextCollation(this.coerceToTextComparable(oldText, 1));
+    const replacement = this.ensureTextCollation(this.coerceToTextComparable(newText, 2));
     if (instanceNum) {
       // PostgreSQL doesn't have direct support for replacing specific instance
       // This is a simplified implementation
-      return `REPLACE(${text}, ${oldText}, ${newText})`;
+      return `REPLACE(${source}, ${search}, ${replacement})`;
     }
-    return `REPLACE(${text}, ${oldText}, ${newText})`;
+    return `REPLACE(${source}, ${search}, ${replacement})`;
   }
 
   lower(text: string): string {
