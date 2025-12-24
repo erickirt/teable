@@ -51,13 +51,13 @@ const SubscriptionBadge = ({ level }: ISubscriptionBadgeProps) => {
       className: 'bg-zinc-100 text-zinc-700 hover:bg-zinc-100',
       label: 'Free',
     },
-    [BillingProductLevel.Plus]: {
-      className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100',
-      label: 'Plus',
-    },
     [BillingProductLevel.Pro]: {
-      className: 'bg-blue-100 text-blue-700 hover:bg-blue-100',
+      className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100',
       label: 'Pro',
+    },
+    [BillingProductLevel.Business]: {
+      className: 'bg-blue-100 text-blue-700 hover:bg-blue-100',
+      label: 'Business',
     },
     [BillingProductLevel.Enterprise]: {
       className: 'bg-zinc-900 text-neutral-50 hover:bg-zinc-900',

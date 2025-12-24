@@ -1,6 +1,8 @@
+import { useQuery } from '@tanstack/react-query';
 import { Role } from '@teable/core';
-import { BillingProductLevel } from '@teable/openapi';
+import { BillingProductLevel, getSpaceById } from '@teable/openapi';
 import { UsageLimitModalType, useUsageLimitModalStore } from '@teable/sdk/components/billing/store';
+import { ReactQueryKeys } from '@teable/sdk/config';
 import { useBase } from '@teable/sdk/hooks';
 import type { Base } from '@teable/sdk/model';
 import { toast } from '@teable/ui-lib/shadcn/ui/sonner';
@@ -30,8 +32,8 @@ interface IUpgradeWrapperProps {
 const getBillingLevelWeight = (level?: BillingProductLevel): number => {
   const levelMap: Record<BillingProductLevel, number> = {
     [BillingProductLevel.Free]: 1,
-    [BillingProductLevel.Plus]: 2,
-    [BillingProductLevel.Pro]: 3,
+    [BillingProductLevel.Pro]: 2,
+    [BillingProductLevel.Business]: 3,
     [BillingProductLevel.Enterprise]: 4,
   };
   return level ? levelMap[level] : 0;
@@ -59,21 +61,30 @@ export const UpgradeWrapper: React.FC<IUpgradeWrapperProps> = ({
   const { openModal } = useUsageLimitModalStore();
   spaceId = base?.spaceId ?? spaceId;
   const baseId = base?.id;
-  // EE starts from pro level
+  // EE starts from business level
   targetBillingLevel =
-    targetBillingLevel === BillingProductLevel.Plus && isEE
-      ? BillingProductLevel.Pro
+    targetBillingLevel === BillingProductLevel.Pro && isEE
+      ? BillingProductLevel.Business
       : targetBillingLevel;
 
   const currentLevel = useBillingLevel(baseId ? { baseId } : { spaceId });
+
+  const { data: space } = useQuery({
+    queryKey: ReactQueryKeys.space(spaceId as string),
+    queryFn: ({ queryKey }) => getSpaceById(queryKey[1]).then((res) => res.data),
+    enabled: Boolean(!baseId) && Boolean(spaceId),
+  });
 
   const isLevelSufficientMemo = useMemo(() => {
     return isLevelSufficient(currentLevel, targetBillingLevel);
   }, [currentLevel, targetBillingLevel]);
 
   const isSpaceOwner = useMemo(() => {
-    return base?.role === Role.Owner;
-  }, [base?.role]);
+    if (baseId) {
+      return base?.role === Role.Owner;
+    }
+    return space?.role === Role.Owner;
+  }, [baseId, base?.role, space?.role]);
 
   const needsUpgrade =
     currentLevel && !isLevelSufficientMemo && !!targetBillingLevel && !isCommunity;
