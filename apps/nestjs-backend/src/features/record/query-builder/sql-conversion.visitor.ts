@@ -2179,6 +2179,12 @@ export class SelectColumnSqlConversionVisitor extends BaseSqlConversionVisitor<I
       const directRef = tableAlias
         ? `"${tableAlias}"."${fieldInfo.dbFieldName}"`
         : `"${fieldInfo.dbFieldName}"`;
+      if (fieldInfo.isLookup) {
+        const normalized = this.normalizeLookupSelection(directRef, fieldInfo, selectContext);
+        if (normalized !== directRef) {
+          return normalized;
+        }
+      }
       return this.coerceRawMultiValueReference(directRef, fieldInfo, selectContext);
     }
 
