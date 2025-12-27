@@ -28,6 +28,7 @@ import { DbFieldType, FieldType, isLinkLookupOptions, DriverClient } from '@teab
 // no driver-specific logic here; use dialect for differences
 import type { Knex } from 'knex';
 import type { IDbProvider } from '../../../db-provider/db.provider.interface';
+import { AUTO_NUMBER_FIELD_NAME } from '../../field/constant';
 import { isSystemUserField } from '../../field/fields-utils';
 import type { IFieldSelectName } from './field-select.type';
 import type {
@@ -390,6 +391,14 @@ export class FieldSelectVisitor implements IFieldVisitor<IFieldSelectName> {
   }
 
   visitAutoNumberField(field: AutoNumberFieldCore): IFieldSelectName {
+    if (field.isLookup) {
+      return this.checkAndSelectLookupField(field);
+    }
+    if (this.rawProjection) {
+      const selector = this.generateColumnSelect(AUTO_NUMBER_FIELD_NAME);
+      this.state.setSelection(field.id, selector);
+      return selector;
+    }
     return this.checkAndSelectLookupField(field);
   }
 

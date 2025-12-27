@@ -55,6 +55,9 @@ export class AutoNumberFieldCore extends FormulaAbstractCore {
     return autoNumberCellValueSchema.nullable().safeParse(value);
   }
 
+  getIsPersistedAsGeneratedColumn() {
+    return this.meta?.persistedAsGeneratedColumn || false;
+  }
   getExpression() {
     return this.options.expression;
   }

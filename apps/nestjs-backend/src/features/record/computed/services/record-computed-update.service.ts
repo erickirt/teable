@@ -57,7 +57,7 @@ export class RecordComputedUpdateService {
         // Skip formula persisted as generated columns
         return match(f)
           .when(isFormulaField, (f) => !f.getIsPersistedAsGeneratedColumn())
-          .with({ type: FieldType.AutoNumber }, () => false)
+          .with({ type: FieldType.AutoNumber }, (f) => !f.getIsPersistedAsGeneratedColumn())
           .with({ type: FieldType.CreatedTime }, () => isLookupStyle)
           .with({ type: FieldType.LastModifiedTime }, () => isLookupStyle)
           .with({ type: FieldType.CreatedBy }, (f) => isLookupStyle || !isPersistedGenerated(f))

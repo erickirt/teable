@@ -10,6 +10,7 @@ import type {
   IConditionalRollupFieldOptions,
   IConditionalLookupOptions,
   ILookupLinkOptionsVo,
+  AutoNumberFieldCore,
   FieldCore,
   TableDomain,
 } from '@teable/core';
@@ -1436,6 +1437,17 @@ export class ComputedDependencyCollectorService {
     return rows.map((row) => row.id).filter(Boolean);
   }
 
+  private getAutoNumberFieldIds(table: TableDomain, excludeFieldIds?: string[]): string[] {
+    const excluded = new Set(excludeFieldIds ?? []);
+    return table.fieldList
+      .filter(
+        (field): field is AutoNumberFieldCore =>
+          field.type === FieldType.AutoNumber && !excluded.has(field.id)
+      )
+      .filter((field) => !field.getIsPersistedAsGeneratedColumn?.())
+      .map((field) => field.id);
+  }
+
   private addContextFreeFormulasToImpact(
     impact: IComputedImpactByTable,
     tableId: string,
@@ -1587,6 +1599,8 @@ export class ComputedDependencyCollectorService {
       excludeFieldIds
     );
     this.addContextFreeFormulasToImpact(impact, tableId, contextFreeFormulaIds);
+    const autoNumberFieldIds = this.getAutoNumberFieldIds(entryDomain, excludeFieldIds);
+    this.addContextFreeFormulasToImpact(impact, tableId, autoNumberFieldIds);
 
     if (!Object.keys(impact).length) {
       return { impact: {}, tableDomains: new Map(seedTableDomains) };
