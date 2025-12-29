@@ -29,6 +29,7 @@ import {
   PopoverTrigger,
 } from '@teable/ui-lib/shadcn';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { useRouter } from 'next/router';
 import { useTranslation } from 'next-i18next';
 import { useMemo, useState } from 'react';
@@ -89,14 +90,7 @@ export const SpaceSwitcher = () => {
 
   const pinMap = usePinMap();
   const { spaceList } = useSpaceList();
-  const currentSpaceId = router.query.spaceId as string | undefined;
-
-  const handleOpenChange = (isOpen: boolean) => {
-    setOpen(isOpen);
-    if (isOpen) {
-      setHighlightedValue(currentSpaceId);
-    }
-  };
+  const { spaceId: currentSpaceId } = useParams<{ spaceId: string }>();
 
   const { data: subscriptionList } = useQuery({
     queryKey: ['subscription-summary-list'],
@@ -134,6 +128,13 @@ export const SpaceSwitcher = () => {
     },
   });
 
+  const handleOpenChange = (isOpen: boolean) => {
+    setOpen(isOpen);
+    if (isOpen) {
+      setHighlightedValue(currentSpaceId);
+    }
+  };
+
   const handleCreateSpace = () => {
     const name =
       spaceName.trim() ||
@@ -170,7 +171,17 @@ export const SpaceSwitcher = () => {
         </PopoverTrigger>
 
         <PopoverContent className="min-w-[360px] p-0" align="start">
-          <Command value={highlightedValue} onValueChange={setHighlightedValue}>
+          <Command
+            value={highlightedValue}
+            onValueChange={setHighlightedValue}
+            filter={(value, search, keywords) => {
+              const searchLower = search.toLowerCase();
+              if (keywords?.some((keyword) => keyword.toLowerCase().includes(searchLower))) {
+                return 1;
+              }
+              return 0;
+            }}
+          >
             <div className="px-4 pb-2 pt-4">
               <p className="pb-2 text-sm font-semibold ">
                 {t('space:allSpaces')} ({spaceList?.length || 0})
@@ -195,6 +206,7 @@ export const SpaceSwitcher = () => {
                     <CommandItem
                       key={space.id}
                       value={space.id}
+                      keywords={[space.name]}
                       onSelect={() => handleSelectSpace(space)}
                       className={cn('group flex items-center gap-2 rounded-md h-10')}
                     >

@@ -70,7 +70,19 @@ export const QuickAction = ({ children }: React.PropsWithChildren) => {
           </kbd>
         )}
       </Button>
-      <CommandDialog open={open} onOpenChange={setOpen}>
+      <CommandDialog
+        open={open}
+        onOpenChange={setOpen}
+        commandProps={{
+          filter: (value, search, keywords) => {
+            const searchLower = search.toLowerCase();
+            if (keywords?.some((keyword) => keyword.toLowerCase().includes(searchLower))) {
+              return 1;
+            }
+            return 0;
+          },
+        }}
+      >
         <CommandInput placeholder={t('common:quickAction.placeHolder')} />
         <CommandList>
           <CommandEmpty>{t('common:noResult')}</CommandEmpty>
@@ -105,7 +117,8 @@ export const QuickAction = ({ children }: React.PropsWithChildren) => {
                     <CommandItem
                       className="flex gap-2"
                       key={id}
-                      value={name}
+                      value={id}
+                      keywords={[name]}
                       onSelect={() => {
                         setOpen(false);
                         if (url) {
@@ -136,6 +149,7 @@ export const QuickAction = ({ children }: React.PropsWithChildren) => {
                 theme.setTheme('light');
               }}
               value={t('common:settings.setting.light')}
+              keywords={[t('common:settings.setting.light')]}
             >
               <Sun className="size-4" />
               <span>{t('common:settings.setting.light')}</span>
@@ -147,6 +161,7 @@ export const QuickAction = ({ children }: React.PropsWithChildren) => {
                 theme.setTheme('dark');
               }}
               value={t('common:settings.setting.dark')}
+              keywords={[t('common:settings.setting.dark')]}
             >
               <Moon className="size-4" />
               <span>{t('common:settings.setting.dark')}</span>
@@ -158,6 +173,7 @@ export const QuickAction = ({ children }: React.PropsWithChildren) => {
                 theme.setTheme('system');
               }}
               value={t('common:settings.setting.system')}
+              keywords={[t('common:settings.setting.system')]}
             >
               <LaptopIcon className="size-4" />
               <span>{t('common:settings.setting.system')}</span>
@@ -165,17 +181,18 @@ export const QuickAction = ({ children }: React.PropsWithChildren) => {
           </CommandGroup>
           <CommandSeparator />
           {!isAnonymous && !isTemplate && (
-            <CommandGroup heading={t('common:settings.title')}>
+            <CommandGroup heading={t('common:settings.nav.settings')}>
               <CommandItem
                 className="flex gap-2"
                 onSelect={() => {
                   setOpen(false);
                   setting.setOpen(true);
                 }}
-                value={t('common:settings.title')}
+                value={t('common:settings.personal.title')}
+                keywords={[t('common:settings.personal.title')]}
               >
                 <Settings className="size-4" />
-                <span>{t('common:settings.title')}</span>
+                <span>{t('common:settings.personal.title')}</span>
               </CommandItem>
             </CommandGroup>
           )}
