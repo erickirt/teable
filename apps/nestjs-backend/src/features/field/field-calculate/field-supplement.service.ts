@@ -772,6 +772,9 @@ export class FieldSupplementService {
 
     const formatting =
       (fieldRo.options as IFormulaFieldOptions)?.formatting ?? getDefaultFormatting(cellValueType);
+    const timeZone =
+      (fieldRo.options as IFormulaFieldOptions)?.timeZone ??
+      Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     return {
       ...fieldRo,
@@ -779,6 +782,7 @@ export class FieldSupplementService {
       options: {
         ...fieldRo.options,
         ...(formatting ? { formatting } : {}),
+        timeZone,
       },
       cellValueType,
       isMultipleCellValue,

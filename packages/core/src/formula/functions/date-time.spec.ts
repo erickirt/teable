@@ -36,9 +36,14 @@ describe('DateTime', () => {
     const todayFunc = new Today();
 
     it('should return the current date', () => {
-      const result = todayFunc.eval();
+      const timeZone = 'America/Los_Angeles';
+      const result = todayFunc.eval([], {
+        record: {} as IRecord,
+        dependencies: {},
+        timeZone,
+      });
 
-      expect(result).toBe(dayjs().startOf('d').toISOString());
+      expect(result).toBe(dayjs().tz(timeZone).startOf('d').toISOString());
     });
   });
 

@@ -6496,6 +6496,85 @@ describe('OpenAPI formula (e2e)', () => {
       expect(record2.data.fields[field2.name]).toEqual(27);
     });
 
+    it('should default formula timeZone when missing', async () => {
+      const inputIso = '2024-02-28T00:00:00+09:00';
+      const defaultTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+      const field = await createField(table.id, {
+        type: FieldType.Formula,
+        options: {
+          expression: `DAY("${inputIso}")`,
+        },
+      });
+
+      const fieldOptions = field.options as { timeZone?: string } | undefined;
+      expect(fieldOptions?.timeZone).toEqual(defaultTimeZone);
+
+      const record = await getRecord(table.id, table.records[0].id);
+      const expectedDay = Number(
+        new Intl.DateTimeFormat('en-GB', {
+          timeZone: defaultTimeZone,
+          day: '2-digit',
+        }).format(new Date(inputIso))
+      );
+
+      expect(record.data.fields[field.name]).toEqual(expectedDay);
+    });
+
+    it('should bucket Created On records using NOW() formula', async () => {
+      const createdOnField = await createField(table.id, {
+        name: 'Created On',
+        type: FieldType.Date,
+        options: {
+          formatting: {
+            date: DateFormattingPreset.ISO,
+            time: TimeFormatting.Hour24,
+            timeZone: 'UTC',
+          },
+        },
+      });
+
+      const formulaField = await createField(table.id, {
+        name: 'Pitch Day',
+        type: FieldType.Formula,
+        options: {
+          expression: `IF(DATETIME_DIFF(NOW(), {${createdOnField.id}}, "day")<1, "Today", IF(DATETIME_DIFF(NOW(), {${createdOnField.id}}, "day")<2, "Yesterday", "Older"))`,
+          timeZone: 'UTC',
+        },
+      });
+
+      const now = Date.now();
+      const records = await createRecords(table.id, {
+        fieldKeyType: FieldKeyType.Id,
+        records: [
+          {
+            fields: {
+              [createdOnField.id]: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+            },
+          },
+          {
+            fields: {
+              [createdOnField.id]: new Date(now - 26 * 60 * 60 * 1000).toISOString(),
+            },
+          },
+          {
+            fields: {
+              [createdOnField.id]: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+            },
+          },
+        ],
+      });
+
+      const todayRecord = await getRecord(table.id, records.records[0].id);
+      expect(todayRecord.data.fields[formulaField.name]).toEqual('Today');
+
+      const yesterdayRecord = await getRecord(table.id, records.records[1].id);
+      expect(yesterdayRecord.data.fields[formulaField.name]).toEqual('Yesterday');
+
+      const olderRecord = await getRecord(table.id, records.records[2].id);
+      expect(olderRecord.data.fields[formulaField.name]).toEqual('Older');
+    });
+
     it('should evaluate timezone-aware formatting formulas referencing fields', async () => {
       const dateField = await createField(table.id, {
         name: 'tz source',

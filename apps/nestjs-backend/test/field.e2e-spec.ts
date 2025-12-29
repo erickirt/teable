@@ -202,12 +202,14 @@ describe('OpenAPI FieldController (e2e)', () => {
     });
 
     it('formula field', async () => {
+      const defaultTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const stringFormulaField = await createFieldByType(FieldType.Formula, {
         expression: '"A"',
       });
       expect(stringFormulaField.name).toEqual('Calculation');
       expect(stringFormulaField.options).toEqual({
         expression: '"A"',
+        timeZone: defaultTimeZone,
       });
 
       const numberFormulaField = await createFieldByType(FieldType.Formula, {
@@ -216,6 +218,7 @@ describe('OpenAPI FieldController (e2e)', () => {
       expect(numberFormulaField.options).toEqual({
         expression: '1 + 1',
         formatting: { type: NumberFormattingType.Decimal, precision: 2 },
+        timeZone: defaultTimeZone,
       });
 
       const booleanFormulaField = await createFieldByType(FieldType.Formula, {
@@ -223,6 +226,7 @@ describe('OpenAPI FieldController (e2e)', () => {
       });
       expect(booleanFormulaField.options).toEqual({
         expression: 'true',
+        timeZone: defaultTimeZone,
       });
 
       const datetimeField = await createFieldByType(FieldType.Date);
@@ -234,8 +238,9 @@ describe('OpenAPI FieldController (e2e)', () => {
         formatting: {
           date: DateFormattingPreset.ISO,
           time: TimeFormatting.None,
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          timeZone: defaultTimeZone,
         },
+        timeZone: defaultTimeZone,
       });
     });
 

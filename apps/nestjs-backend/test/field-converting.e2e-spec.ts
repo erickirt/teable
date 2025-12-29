@@ -238,6 +238,7 @@ describe('OpenAPI Freely perform column transformations (e2e)', () => {
       const { newField } = await expectUpdate(table1, sourceFieldRo, newFieldRo);
       expect(newField.options).toEqual({
         expression: '"text"',
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
     });
 

@@ -285,7 +285,7 @@ export class FieldSelectVisitor implements IFieldVisitor<IFieldSelectName> {
       }
 
       const expression = field.getExpression();
-      const timezone = field.options.timeZone;
+      const timezone = field.options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
       // In raw/propagation context (used by UPDATE ... FROM SELECT), avoid referencing
       // the physical generated column directly, since it may have been dropped by

@@ -91,13 +91,13 @@ export class Today extends DateTimeFunc {
     return { type: CellValueType.DateTime };
   }
 
-  eval(): string | null {
-    return dayjs().startOf('d').toISOString();
+  eval(_params: TypedValue[], context: IFormulaContext): string | null {
+    return dayjs().tz(context.timeZone).startOf('d').toISOString();
   }
 }
 
 export class Now extends DateTimeFunc {
-  name = FunctionName.Today;
+  name = FunctionName.Now;
 
   acceptValueType = new Set([]);
 
@@ -111,8 +111,8 @@ export class Now extends DateTimeFunc {
     return { type: CellValueType.DateTime };
   }
 
-  eval(): string | null {
-    return dayjs().toISOString();
+  eval(_params: TypedValue[], context: IFormulaContext): string | null {
+    return dayjs().tz(context.timeZone).toISOString();
   }
 }
 
